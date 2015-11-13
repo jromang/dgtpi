@@ -1,3 +1,22 @@
+/* functions to communicate to a DGT3000 using I2C
+ * version 0.5
+ * 
+ * Copyright (C) 2015 DGT
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
 #include <pthread.h>
 
 #define GPIO_BASE  0x200000
@@ -25,7 +44,30 @@ long long int *timer;
 
 // variables for debug stats
 #ifdef debug
-int wakes, setccs, resets, clears, clears2, hellos, hellos2, totals, overflows, maxs;
+typedef struct {
+	int displaySF;
+	int displayAF;
+	int endDisplaySF;
+	int endDisplayAF;
+	int changeStateSF;
+	int changeStateAF;
+	int setCCSF;
+	int setCCAF;
+	int setNRunSF;
+	int setNRunAF;
+	
+	int rxTimeout;
+	int rxWrongAdr;
+	int rxBufferFull;
+	int rxSizeMismatch;
+	int rxCRCFault;
+	int rxMaxBuf;
+	
+	int sendTotal;
+	
+} debug_t;
+debug_t bug;
+//int wakes, setccs, resets, clears, clears2, hellos, hellos2, totals, overflows, maxs;
 #endif
 
 #define DGTRX_BUTTON_BUFFER_SIZE 16
@@ -38,12 +80,15 @@ typedef struct {
 	int buttonStart;
 	int buttonEnd;
 	char buttonState;
+	char lastButtonState;
 	char time[6];
-} dgtRecieve_t;
+} dgtReceive_t;
 
-dgtRecieve_t dgtRx;
+dgtReceive_t dgtRx;
 
-pthread_t recieveThread;
+pthread_t receiveThread;
+pthread_mutex_t receiveMutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t receiveCond = PTHREAD_COND_INITIALIZER;
 
 // global retry counters
 int wakeCount = 0;
@@ -51,8 +96,8 @@ int setCCCount = 0;
 int resetCount = 0;
 int sendCount = 0;
 
-// set if a time message is recieved.
-char timeRecieved = 0;
+
+char startMode = 0;
 
 // I2C message descriptors
 char ping[] = {80,32,5, 13, 70};
@@ -119,16 +164,16 @@ char crc_calc(char *buffer);
 	*/
 void i2cReset();
 
-/* get message from I2C recieve buffer
+/* get message from I2C receive buffer
 	m[] = message buffer of 256 bytes
 	timeOut = time to wait for packet in us (0=dont wait)
 	returns:
-	-5 = I2C buffer overrun, at least 16 bytes recieved succesfully. rest is missing.
+	-5 = I2C buffer overrun, at least 16 bytes received succesfully. rest is missing.
 	-4 = our buffer overrun (should not happen)
 	-3 = timeout
 	-2 = I2C Error
 	>0 = packet length*/
-int i2cRecieve(char m[]);
+int i2cReceive(char m[]);
 	
 /* send message using I2CMaster
 	 message[] = the message to send
@@ -143,7 +188,7 @@ int i2cSend(char message[]);
 	returns:
 	0 = succes 
 	1 = fail (run as root!) */
-int dgt3000init(void);
+int dgt3000Init(void);
 
 /* configure dgt3000 to on, central controll and mode 25
 	returns:
@@ -155,7 +200,7 @@ int dgt3000Configure();
 /* send a wake command to the dgt3000
 	returns:
 	-3 = wake ack error
-	-1 = no hello message recieved
+	-1 = no hello message received
 	0 = succes */
 int dgt3000Wake();
 
@@ -163,7 +208,7 @@ int dgt3000Wake();
 	returns:
 	-3 = sending failed, clock off (or collision)
 	-2 = sending failed, I2C error
-	-1 = no (positive)ack recieved, not in CC
+	-1 = no (positive)ack received, not in CC
 	0 = succes */
 int dgt3000SetCC();
 
@@ -171,7 +216,7 @@ int dgt3000SetCC();
 	returns:
 	-3 = sending failed, clock off (or collision)
 	-2 = sending failed, I2C error
-	-1 = no (positive)ack recieved, not in CC
+	-1 = no (positive)ack received, not in CC
 	0 = succes */
 int dgt3000Mode25();
 
@@ -179,7 +224,7 @@ int dgt3000Mode25();
 	returns:
 	-3 = sending failed, clock off (or collision)
 	-2 = sending failed, I2C error
-	-1 = no (positive)ack recieved, not in CC
+	-1 = no (positive)ack received, not in CC
 	0 = succes */
 int dgt3000EndDisplay();
 
@@ -188,7 +233,7 @@ int dgt3000EndDisplay();
 	returns:
 	-3 = sending failed, clock off (or collision)
 	-2 = sending failed, I2C error
-	-1 = no (positive)ack recieved, not in CC
+	-1 = no (positive)ack received, not in CC
 	0 = succes */
 int dgt3000SetDisplay(char dm[]);
 
@@ -200,7 +245,7 @@ int dgt3000SetDisplay(char dm[]);
 	returns:
 	-3 = sending failed, clock off (or collision)
 	-2 = sending failed, I2C error
-	-1 = no (positive)ack recieved, not in CC
+	-1 = no (positive)ack received, not in CC
 	0 = succes */
 int dgt3000SetNRun(char lr, char lh, char lm, char ls, 
 					char rr, char rh, char rm, char rs);
@@ -222,10 +267,10 @@ int dgt3000Display(char text[], char beep, char ld, char rd);
 
 /* check for messages from dgt3000
 	returns:
-	0 = nothing is recieved
-	1 = something is recieved
-	2 = off button message is recieved */
-void *dgt3000Recieve(void *);
+	0 = nothing is received
+	1 = something is received
+	2 = off button message is received */
+void *dgt3000Receive(void *);
 
 /* wait for an Ack message
 	adr = adress to listen for ack
@@ -236,7 +281,7 @@ void *dgt3000Recieve(void *);
 	0 = Ack */
 int dgt3000GetAck(char adr, char cmd, long long int timeOut);
 
-/* return last recieved time
+/* return last received time
 	time[] = 6 byte time descriptor */
 void dgt3000GetTime(char time[]);
 
@@ -255,6 +300,27 @@ void dgt3000GetTime(char time[]);
 		0xc0   Lever changed, left side down */
 int dgt3000GetButton(char *buttons, char *time);
 
-/* stop recieving
+/* return current button state
+	returns:
+	  binary:
+		0x01 < back
+		0x02 - minus
+		0x04   play/pause
+		0x08 + plus
+		0x10 > forward
+		0x20   on/off button
+		0x40   Lever changed, (right side down = 1) */
+int dgt3000GetButtonState();
+
+/* turn off dgt3000
+	returnMode = Mode clock will start in when turned on
+	returns:
+	-3 = sending failed, clock off (or collision)
+	-2 = sending failed, I2C error
+	-1 = no (positive)ack received, not in CC
+	0 = succes */
+int dgt3000Off(char returnMode);
+
+/* stop receiving
 	*/
 void dgt3000Stop();
