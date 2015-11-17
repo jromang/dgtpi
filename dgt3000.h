@@ -1,8 +1,8 @@
 /* functions to communicate to a DGT3000 using I2C
  * version 0.5
- * 
+ *
  * Copyright (C) 2015 DGT
- * 
+ *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
@@ -12,11 +12,11 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
- 
+
 #include <pthread.h>
 
 #define GPIO_BASE  0x200000
@@ -29,6 +29,7 @@
 
 // enable debug info and debug pins
 #define debug
+#define debug2
 #ifdef debug
 #define GREENHI *gpioset = (1 << 17)  // GPIO 17
 #define GREENLO *gpioclr = (1 << 17)
@@ -55,16 +56,16 @@ typedef struct {
 	int setCCAF;
 	int setNRunSF;
 	int setNRunAF;
-	
+
 	int rxTimeout;
 	int rxWrongAdr;
 	int rxBufferFull;
 	int rxSizeMismatch;
 	int rxCRCFault;
 	int rxMaxBuf;
-	
+
 	int sendTotal;
-	
+
 } debug_t;
 debug_t bug;
 //int wakes, setccs, resets, clears, clears2, hellos, hellos2, totals, overflows, maxs;
@@ -108,6 +109,7 @@ char noAutoMessage[] = {16,32,6,3,209,135};
 char setDisplay[] = {16,32,21,6,32,32,32,32,32,32,32,32,32,32,32,255,0,3,0,0,0};
 char setnrun[] = {16,32,12,10,0,1,0,0,1,0,1,0};
 
+const char* packetDescriptor[] = {"Ack","Hello","Debug","Time","Button","Display","End Display","Current Program","Program","Set And Run","Change State","Send Hello","Ping","Time Correlation","Set Central Control","Release Central Control","Trigger Boot Loader"};
 
 // pre-calculated CRC ATM-8 (x^8 + x^2 + x^1 + x^0)
 const char crc_table[256] = {
@@ -174,7 +176,7 @@ void i2cReset();
 	-2 = I2C Error
 	>0 = packet length*/
 int i2cReceive(char m[]);
-	
+
 /* send message using I2CMaster
 	 message[] = the message to send
 	 returns:
@@ -186,7 +188,7 @@ int i2cSend(char message[]);
 
 /* Get direct access to BCM2708/9
 	returns:
-	0 = succes 
+	0 = succes
 	1 = fail (run as root!) */
 int dgt3000Init(void);
 
@@ -247,7 +249,7 @@ int dgt3000SetDisplay(char dm[]);
 	-2 = sending failed, I2C error
 	-1 = no (positive)ack received, not in CC
 	0 = succes */
-int dgt3000SetNRun(char lr, char lh, char lm, char ls, 
+int dgt3000SetNRun(char lr, char lh, char lm, char ls,
 					char rr, char rh, char rm, char rs);
 
 /* try three times to end and set de display

@@ -1,8 +1,8 @@
 /* functions to communicate to a DGT3000 using I2C
  * version 0.5
- * 
+ *
  * Copyright (C) 2015 DGT
- * 
+ *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
@@ -12,7 +12,7 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
@@ -89,31 +89,32 @@ int main (int argc, char *argv[]) {
 		dgt3000Display(argv[1],beep,ldots,rdots);
 	} else {
 		printf("%.3f ",(float)*timer/1000000);
-		printf("started\n");	
+		printf("started\n");
 		ww=1;
 		pthread_t w;
 		pthread_create(&w, NULL, wl, NULL);
 		but=tim=0;
 		while(1) {
-			
-			
+
+
 		//	printf("rxMaxBuf=%d  ",bug.rxMaxBuf);
-			
+
 		//	dgt3000GetTime(t);
 		//	printf("time=%d:%02d.%02d %d:%02d.%02d\n",t[0],t[1],t[2],t[3],t[4],t[5]);
-			
+
 			if (dgt3000GetButton(&but,&tim)) {
 				printf("%.3f ",(float)*timer/1000000);
 				printf("button=%02x, time=%d\n",but,tim);
 				if (but==0x20) {
-					dgt3000Stop();
 					break;
 				}
 			}
-			
+
 			usleep(10000);
 		}
 	}
+
+	dgt3000Stop();
 
 	#ifdef debug
 	printf("%.3f ",(float)*timer/1000000);
@@ -126,7 +127,7 @@ int main (int argc, char *argv[]) {
 			bug.rxTimeout, bug.rxWrongAdr, bug.rxBufferFull, bug.rxSizeMismatch, bug.rxCRCFault);
 	printf("Max recieve buffer size=%d\n",bug.rxMaxBuf);
 	#endif
-	
+
 	// succes?
 	return 0;
 }
@@ -193,13 +194,13 @@ int dgt3000Init() {
 	//if((*(gpio+1) & 0x3f000000) != 0x3f000000)
 		i2cReset();
 
-	// set to I2CMaster destination adress 
+	// set to I2CMaster destination adress
 	*i2cMasterA=8;
 
 	dgtRx.on=1;
 
 	pthread_create(&receiveThread, NULL, dgt3000Receive, NULL);
-	
+
 	// give thread max priority
 	params.sched_priority = sched_get_priority_max(SCHED_FIFO);
 	pthread_setschedparam(receiveThread, SCHED_FIFO, &params);
@@ -249,6 +250,7 @@ int dgt3000Configure() {
 			continue;
 		} else {
 			// succes!
+			usleep(5000);
 			break;
 		}
 	}
@@ -283,7 +285,7 @@ int dgt3000Wake() {
 			return 0;
 		usleep(100);
 	}
-	
+
 	return -1;
 }
 
@@ -305,7 +307,7 @@ int dgt3000SetCC() {
 	// listen to our own adress and get Reply
 
 	e=dgt3000GetAck(0x10,0x0f,10000);
-		
+
 	// ack received?
 	if (e<0) {
 		#ifdef debug
@@ -317,7 +319,7 @@ int dgt3000SetCC() {
 	// is positive ack?
 	if ((dgtRx.ack[1]&8) == 8)
 		return 0;
-	
+
 	// nack clock running
 	return -1;
 }
@@ -328,7 +330,7 @@ int dgt3000Mode25() {
 
 	mode25[4]=57;
 	crc_calc(mode25);
-	
+
 	// send mode 25 message
 	e=i2cSend(mode25);
 
@@ -342,7 +344,7 @@ int dgt3000Mode25() {
 
 	// listen to our own adress an get Reply
 	e=dgt3000GetAck(0x10,0x0b,10000);
-			
+
 	// ack received?
 	if (e<0) {
 		#ifdef debug
@@ -350,7 +352,7 @@ int dgt3000Mode25() {
 		#endif
 		return e;
 	}
-	
+
 	if (dgtRx.ack[1]==8) return 0;
 
 	// negetive ack not in CC
@@ -385,7 +387,7 @@ int dgt3000EndDisplay() {
 
 	//get slow broadcast Reply = display changed
 	e=dgt3000GetAck(0x00,0x07,10000);
-	
+
 	// ack received?
 	if (e<0) {
 		#ifdef debug
@@ -426,7 +428,7 @@ int dgt3000SetDisplay(char dm[]) {
 		#endif
 		return e;
 	}
-	
+
 	// nack, already displaying message
 	if ((dgtRx.ack[1]&0xf3)==0x23) {
 		printf("%.3f ",(float)*timer/1000000);
@@ -479,7 +481,7 @@ int dgt3000Display(char text[], char beep, char ld, char rd) {
 }
 
 // send set and run command to dgt3000
-int dgt3000SetNRun(char lr, char lh, char lm, char ls, 
+int dgt3000SetNRun(char lr, char lh, char lm, char ls,
 					char rr, char rh, char rm, char rs) {
 	int e;
 
@@ -494,7 +496,7 @@ int dgt3000SetNRun(char lr, char lh, char lm, char ls,
 	crc_calc(setnrun);
 
 	e=i2cSend(setnrun);
-	
+
 	// send succesful?
 	if (e<0) {
 		#ifdef debug
@@ -532,7 +534,7 @@ void *dgt3000Receive(void *a) {
 	while (dgtRx.on) {
 		if ( (*i2cSlaveFR&0x20) != 0 || (*i2cSlaveFR&2) == 0 ) {
 			pthread_mutex_lock(&receiveMutex);
-			
+
 			#ifdef debug
 			PINKHI;
 			#endif
@@ -540,16 +542,21 @@ void *dgt3000Receive(void *a) {
 			#ifdef debug
 			PINKLO;
 			#endif
-			
+
 			#ifdef debug2
 			if (e>0) {
-				printf("maxs=%d  ",maxs);
-				printf("length=%d  ",e);
+				printf("<- ");
+			//	printf("maxs=%d  ",maxs);
+			//	printf("length=%d  ",e);
 				for (i=0;i<e;i++)
-				  printf("%02x ", rm[i]);
+					printf("%02x ", rm[i]);
+			} else if (e<0) {
+				printf("<- ");
+				for (i=0;i<16;i++)
+					printf("%02x ", rm[i]);
 			}
 			#endif
-			
+
 			if (e>0) {
 				switch (rm[3]) {
 					case 1:		// ack
@@ -557,13 +564,13 @@ void *dgt3000Receive(void *a) {
 						dgtRx.ack[1]=rm[5];
 						pthread_cond_signal(&receiveCond);
 						#ifdef debug2
-						printf("Ack\n");
+						printf("= Ack %s\n",packetDescriptor[rm[4]-1]);
 						#endif
 						break;
 					case 2:		// hello
 						dgtRx.hello=1;
 						#ifdef debug2
-						printf("Hello\n");
+						printf("= Hello\n");
 						#endif
 						break;
 					case 4:		// time
@@ -579,7 +586,7 @@ void *dgt3000Receive(void *a) {
 						else
 							dgtRx.lastButtonState &= 0xbf;
 						#ifdef debug2
-						printf("Time: %02x:%02x.%02x %02x:%02x.%02x\n",rm[5]&0xf,rm[6],rm[7],rm[11]&0xf,rm[12],rm[13]);
+						printf("= Time: %02x:%02x.%02x %02x:%02x.%02x\n",rm[5]&0xf,rm[6],rm[7],rm[11]&0xf,rm[12],rm[13]);
 						#endif
 						if (rm[20]==1) ; // no update
 						break;
@@ -588,7 +595,7 @@ void *dgt3000Receive(void *a) {
 						if (rm[4]&0x1f)
 							dgtRx.buttonState |= rm[4]&0x1f;
 							dgtRx.lastButtonState = rm[4];
-													
+
 						// turned off/on
 						if((rm[4]&0x20) != (rm[5]&0x20)) {
 							// buffer full?
@@ -601,7 +608,7 @@ void *dgt3000Receive(void *a) {
 								dgtRx.buttonEnd=(dgtRx.buttonEnd+1)%DGTRX_BUTTON_BUFFER_SIZE;
 							}
 						}
-						
+
 						// lever change?
 						if((rm[4]&0x40) != (rm[5]&0x40)) {
 							if (ww)
@@ -618,7 +625,7 @@ void *dgt3000Receive(void *a) {
 								dgtRx.buttonEnd=(dgtRx.buttonEnd+1)%DGTRX_BUTTON_BUFFER_SIZE;
 							}
 						}
-							
+
 						// buttons released
 						if((rm[4]&0x1f) == 0 && dgtRx.buttonState != 0) {
 							// buffer full?
@@ -633,18 +640,25 @@ void *dgt3000Receive(void *a) {
 							dgtRx.buttonState=0;
 						}
 						#ifdef debug2
-						printf("Button: 0x%02x>0x%02x\n",rm[5]&0x7f,rm[4]&0x7f);
+						printf("= Button: 0x%02x>0x%02x\n",rm[5]&0x7f,rm[4]&0x7f);
 						#endif
 						break;
 					default:
+						#ifdef debug
 						printf("%.3f ",(float)*timer/1000000);
 						printf("unknown message from clock\n");
+						#endif
 				}
 			} else  if (e<0) {
+				#ifdef debug2
+				printf(" = Error: %d\n",e);
+				#endif
+				#ifdef debug
 				printf("%.3f ",(float)*timer/1000000);
-				printf("Receive Error\n");
+				printf("Receive Error:%d\n",e);
+				#endif
 			}
-			pthread_mutex_unlock(&receiveMutex);			
+			pthread_mutex_unlock(&receiveMutex);
 		} else {
 			usleep(400);
 		}
@@ -655,22 +669,22 @@ void *dgt3000Receive(void *a) {
 // wait for an Ack message
 int dgt3000GetAck(char adr, char cmd, long long int timeOut) {
 	struct timespec receiveTimeOut;
-	
-	
+
+
 	pthread_mutex_lock(&receiveMutex);
-	
+
 	// clear so we can receive a new ack.
 	dgtRx.ack[0]=0;
-	
+
 	// listen to given adress
 //	while ((*i2cSlaveFR&0x20) != 0 );
 	*i2cSlaveSLV=adr;
-	
+
 	// check until timeout
 	timeOut+=*timer;
 	receiveTimeOut.tv_sec=timeOut/1000000;
 	receiveTimeOut.tv_nsec=timeOut%1000000;
-	
+
 	while (*timer<timeOut) {
 		if (dgtRx.ack[0]==cmd) {
 			// listen for broadcast again
@@ -713,7 +727,7 @@ int dgt3000GetButton(char *buttons, char *time) {
 
 // return current button state
 int dgt3000GetButtonState() {
-	return dgtRx.lastButtonState;	
+	return dgtRx.lastButtonState;
 }
 
 // turn off dgt3000
@@ -737,7 +751,7 @@ int dgt3000Off(char returnMode) {
 
 	// listen to our own adress an get Reply
 	e=dgt3000GetAck(0x10,0x0b,10000);
-			
+
 	// ack received?
 	if (e<0) {
 		#ifdef debug
@@ -745,7 +759,7 @@ int dgt3000Off(char returnMode) {
 		#endif
 		return e;
 	}
-	
+
 	// negetive ack not in CC
 	if (dgtRx.ack[1]!=8) return -1;
 
@@ -763,7 +777,7 @@ int dgt3000Off(char returnMode) {
 		#endif
 		return e;
 	}
-	
+
 	return 0;
 }
 
@@ -771,13 +785,13 @@ int dgt3000Off(char returnMode) {
 void dgt3000Stop() {
 	// stop listening to broadcasts
 	*i2cSlaveSLV=16;
-	
+
 	// stop thread
 	dgtRx.on=0;
-	
+
 	// wait for thread to finish
 	pthread_join(receiveThread, NULL);
-	
+
 	// disable i2cSlave device
 	*i2cSlaveCR=0;
 }
@@ -794,10 +808,21 @@ int i2cSend(char message[]) {
 
 	// clear buffer
 	*i2cMaster = 0x10;
+	
+	#ifdef debug2
+	printf("-> %02x ", message[0]);
+	#endif
+		
 
 	// fill the buffer
-	for (n=1;n<message[2] && *i2cMasterS&0x10;n++)
+	for (n=1;n<message[2] && *i2cMasterS&0x10;n++) {
+		#ifdef debug2
+		printf("%02x ", message[n]);
+		if(n == message[2]-1)
+			printf("= %s\n",packetDescriptor[message[3]-1]);
+		#endif
 		*i2cMasterFIFO=message[n];
+	}
 
 	// check 256 times if the bus is free. At least for 50us because the clock will send waiting messages 50 us after the previeus one.
 	timeOut=*timer + 10000;   // bus should be free in 10ms
@@ -832,9 +857,14 @@ int i2cSend(char message[]) {
 		// wait for space in the buffer
 		// TODO: timeout (I2CError)
 		while((*i2cMasterS&0x10)==0) if (*i2cMasterS&2) break;
+		#ifdef debug2
+		printf("%02x ", message[n]);
+		if(n == message[2]-1)
+			printf("= %s\n",packetDescriptor[message[3]-1]);
+		#endif
 		*i2cMasterFIFO=message[n];
 	}
-
+		
 	// wait for done
 	// TODO; timeout (I2CError)
 	while ((*i2cMasterS&2)==0);
@@ -863,7 +893,7 @@ int i2cReceive(char m[]) {
 	// todo implement end of packet check
 	int i=1;
 	long long int timeOut;
-	
+
 	m[0]=*i2cSlaveSLV*2;
 
 	// a message should be finished receiving in 10ms
@@ -876,7 +906,7 @@ int i2cReceive(char m[]) {
 
 	// while I2CSlave is receiving or byte availible
 	while( ((*i2cSlaveFR&0x20) != 0) || ((*i2cSlaveFR&2) == 0) ) {
-		
+
 		// timeout
 		if (timeOut<*timer) {
 			#ifdef debug
@@ -893,11 +923,11 @@ int i2cReceive(char m[]) {
 			// complete packet
 			if (i>2 && i>=m[2]) break;
 		} else
-		// no byte availible receiving a new one will take 70us 
+		// no byte availible receiving a new one will take 70us
 			usleep(70);
 	}
 	m[i]=-1;
-	
+
 	// nothing?
 	if (i==1)
 		return 0;
@@ -913,7 +943,7 @@ int i2cReceive(char m[]) {
 		#endif
 		return -2;
 	}
-	
+
 	// errors?
 	if (*i2cSlaveRSR&1 || i<5 || i!=m[2] )  {
 		#ifdef debug
@@ -925,7 +955,7 @@ int i2cReceive(char m[]) {
 		*i2cSlaveRSR=0;
 		return -5;
 	}
-	
+
 	if (crc_calc(m)) {
 		#ifdef debug
 		bug.rxCRCFault++;
@@ -938,12 +968,14 @@ int i2cReceive(char m[]) {
 
 // configure IO pins and I2C Master and Slave
 void i2cReset() {
-	// pinmode GPIO2,GPIO3=ALT0 (togle via input to reset)
+	// pinmode GPIO2,GPIO3=ALT0 (togle via input to reset i2C master(sometimes hangs))
 	*gpio &= 0xfffff03f;
+	usleep(1000);	// not tested! some delay needed
 	*gpio |= 0x900;
 
 	// pinmode GPIO18,GPIO19=ALT3 (togle via input to reset)
 	*(gpio+1) &= 0x00ffffff;
+	usleep(1000);
 	*(gpio+1) |= 0x3f000000;
 
 	#ifdef debug
