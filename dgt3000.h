@@ -27,14 +27,19 @@
 #define SDA1IN (*gpioin & (1 << 2))    // SDA1 = GPIO 2
 #define SCL1IN (*gpioin & (1 << 3))    // SCL1 = GPIO 3
 
-// enable debug info and debug pins
-#define debug
-#define debug2
+
+// receive buffer length, longest package is program 51,
+// debug can be modified in the future to max length of 255
+#define RECEIVE_BUFFER_LENGTH 256
+
+// enable debug pins
 #ifdef debug
-#define GREENHI *gpioset = (1 << 17)  // GPIO 17
-#define GREENLO *gpioclr = (1 << 17)
-#define PINKHI *gpioset = (1 << 27)  // GPIO 27
-#define PINKLO *gpioclr = (1 << 27)
+#define WAIT_FOR_FREE_BUS_PIN_HI *gpioset = (1 << 17)  // GPIO 17
+#define WAIT_FOR_FREE_BUS_PIN_LO *gpioclr = (1 << 17)
+#define RECEIVE_THREAD_RUNNING_PIN_HI *gpioset = (1 << 27)  // GPIO 27
+#define RECEIVE_THREAD_RUNNING_PIN_LO *gpioclr = (1 << 27)
+#define ERROR_PIN_HI *gpioset = (1 << 22)  // GPIO 22
+#define ERROR_PIN_LO *gpioclr = (1 << 22)
 #endif
 
 // pointers to BCM2708/9 registers
@@ -90,13 +95,6 @@ dgtReceive_t dgtRx;
 pthread_t receiveThread;
 pthread_mutex_t receiveMutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t receiveCond = PTHREAD_COND_INITIALIZER;
-
-// global retry counters
-int wakeCount = 0;
-int setCCCount = 0;
-int resetCount = 0;
-int sendCount = 0;
-
 
 char startMode = 0;
 
@@ -161,6 +159,11 @@ int checkPiModel();
 	*buffer = pointer to buffer */
 char crc_calc(char *buffer);
 
+/* print hex values
+	bytes = array of bytes
+	length is number of bytes to print */
+void hexPrint(char bytes[], int length);
+
 
 /* configure IO pins and I2C Master and Slave
 	*/
@@ -170,6 +173,7 @@ void i2cReset();
 	m[] = message buffer of 256 bytes
 	timeOut = time to wait for packet in us (0=dont wait)
 	returns:
+	-6 = CRC Error
 	-5 = I2C buffer overrun, at least 16 bytes received succesfully. rest is missing.
 	-4 = our buffer overrun (should not happen)
 	-3 = timeout

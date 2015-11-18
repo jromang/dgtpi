@@ -32,12 +32,23 @@
 int ww;
 
 void *wl(void *x) {
+	int e;
+	int i=0;
 	while (1)
 		if (ww) {
-			dgt3000Configure();
-			dgt3000Display("Goeindag",0,0,0);
-			dgt3000SetNRun(1,0,10,0,2,0,10,0);
+			e=dgt3000Configure();
+			if (e<0)
+				printf("%d: Configure failed!\n",i);
+			e=dgt3000Display("Goeindag",0,0,0);
+			if (e<0)
+				printf("%d: Display failed!\n",i);
+			e=dgt3000SetNRun(1,0,10,0,2,0,10,0);
+			if (e<0)
+				printf("%d: SetNRun failed!\n",i);
+			i++;
+			#ifdef debug
 			bug.sendTotal++;
+			#endif
 		}
 	return 0;
 }
@@ -211,6 +222,10 @@ int dgt3000Init() {
 // configure dgt3000 to on, central controll and mode 25
 int dgt3000Configure() {
 	int e;
+	int wakeCount = 0;
+	int setCCCount = 0;
+	int resetCount = 0;
+
 
 	// get the clock into the right state
 	while (1) {
@@ -224,8 +239,12 @@ int dgt3000Configure() {
 				setCCCount++;
 				// setCC>3?
 				if (setCCCount>3) {
+					#ifdef debug
+					ERROR_PIN_HI;
 					printf("%.3f ",(float)*timer/1000000);
-					printf("sending setCentralControll failed three times\n");
+					printf("sending setCentralControll failed three times\n\n");
+					ERROR_PIN_LO;
+					#endif
 					return -3;
 				}
 				if (dgt3000SetCC()==0) break;
@@ -234,20 +253,39 @@ int dgt3000Configure() {
 			// timeout, line stay low -> reset i2c
 			resetCount++;
 			if (resetCount>1) {
+				#ifdef debug
+				ERROR_PIN_HI;
 				printf("%.3f ",(float)*timer/1000000);
-				printf("I2C error, remove jack plug\n");
+				printf("I2C error, remove jack plug\n\n");
+				ERROR_PIN_LO;
+				#endif
 				return -2;
 			}
 			i2cReset();
 			continue;
 		} else if (e==-3) {
 			// message not acked, clock off or collision
-			if(dgt3000Wake()==-3) {
-				printf("%.3f ",(float)*timer/1000000);
-				printf("unable to wake the dgt3000\n");
-				return -3;
+			if ((SCL1IN==0) || (SDA1IN==0) || ((*i2cSlaveFR&0x20)!=0) || ((*i2cSlaveFR&2)==0)) {
+				// collision -> try again
+				continue;
+			} else {
+				// clock off -> wake
+				// wake#++
+				wakeCount++;
+
+				// wake#>3? -> error
+				if (wakeCount>3) {
+					#ifdef debug
+					ERROR_PIN_HI;
+					printf("%.3f ",(float)*timer/1000000);
+					printf("sending wake command failed three times\n");
+					ERROR_PIN_LO;
+					#endif
+					return -3;
+				}
+				dgt3000Wake();
+				continue;
 			}
-			continue;
 		} else {
 			// succes!
 			usleep(5000);
@@ -262,13 +300,7 @@ int dgt3000Wake() {
 	int e;
 	long long int t;
 
-	// turnOn#++
-	wakeCount++;
 
-	// turnOn#>3? -> error
-	if (wakeCount>3) return -3;
-
-	dgtRx.hello=0;
 
 	// send wake
 	*i2cMasterA=40;
@@ -276,7 +308,15 @@ int dgt3000Wake() {
 	*i2cMasterA=8;
 
 	// succes? -> error. Wake messages should never get an Ack
-	if (e==0) return -3;
+	if (e==0) {
+		#ifdef debug
+		ERROR_PIN_HI;
+		printf("%.3f ",(float)*timer/1000000);
+		printf("sending wake command failed, received Ack, this should never hapen\n");
+		ERROR_PIN_LO;
+		#endif
+		return -3;
+	}
 
 	// Get Hello message (in max 10ms, usualy 5ms)
 	t=*timer+10000;
@@ -286,6 +326,13 @@ int dgt3000Wake() {
 		usleep(100);
 	}
 
+	#ifdef debug
+	ERROR_PIN_HI;
+	printf("%.3f ",(float)*timer/1000000);
+	printf("sending wake command failed, no hello\n");
+	ERROR_PIN_LO;
+	#endif
+	
 	return -1;
 }
 
@@ -299,7 +346,11 @@ int dgt3000SetCC() {
 	// send succedfull?
 	if (e<0) {
 		#ifdef debug
+		ERROR_PIN_HI;
 		bug.setCCSF++;
+		printf("%.3f ",(float)*timer/1000000);
+		printf("sending SetCentralControll command failed, sending failed\n");
+		ERROR_PIN_LO;
 		#endif
 		return e;
 	}
@@ -311,7 +362,11 @@ int dgt3000SetCC() {
 	// ack received?
 	if (e<0) {
 		#ifdef debug
+		ERROR_PIN_HI;
 		bug.setCCAF++;
+		printf("%.3f ",(float)*timer/1000000);
+		printf("sending SetCentralControll command failed, no ack\n");
+		ERROR_PIN_LO;
 		#endif
 		return e;
 	}
@@ -319,6 +374,13 @@ int dgt3000SetCC() {
 	// is positive ack?
 	if ((dgtRx.ack[1]&8) == 8)
 		return 0;
+	
+	#ifdef debug
+	ERROR_PIN_HI;
+	printf("%.3f ",(float)*timer/1000000);
+	printf("sending SetCentralControll command failed, negative ack, clock running\n");
+	ERROR_PIN_LO;
+	#endif
 
 	// nack clock running
 	return -1;
@@ -337,7 +399,11 @@ int dgt3000Mode25() {
 	// send succesful?
 	if (e<0) {
 		#ifdef debug
+		ERROR_PIN_HI;
 		bug.changeStateSF++;
+		printf("%.3f ",(float)*timer/1000000);
+		printf("sending mode25 command failed, sending failed\n");
+		ERROR_PIN_LO;
 		#endif
 		return e;
 	}
@@ -348,13 +414,24 @@ int dgt3000Mode25() {
 	// ack received?
 	if (e<0) {
 		#ifdef debug
+		ERROR_PIN_HI;
 		bug.changeStateAF++;
+		printf("%.3f ",(float)*timer/1000000);
+		printf("sending mode25 command failed, no ack\n");
+		ERROR_PIN_LO;
 		#endif
 		return e;
 	}
 
 	if (dgtRx.ack[1]==8) return 0;
 
+	#ifdef debug
+	ERROR_PIN_HI;
+	printf("%.3f ",(float)*timer/1000000);
+	printf("sending mode25 command failed, negative ack, not in Central Controll\n");
+	ERROR_PIN_LO;
+	#endif
+	
 	// negetive ack not in CC
 	return -1;
 }
@@ -369,7 +446,11 @@ int dgt3000EndDisplay() {
 	// send succesful?
 	if (e<0) {
 		#ifdef debug
+		ERROR_PIN_HI;
 		bug.endDisplaySF++;
+		printf("%.3f ",(float)*timer/1000000);
+		printf("sending end display command failed, sending failed\n");
+		ERROR_PIN_LO;
 		#endif
 		return e;
 	}
@@ -379,10 +460,17 @@ int dgt3000EndDisplay() {
 
 	// display already empty
 	if (e==0) {
-		if ((dgtRx.ack[1]&0x07) == 0x05)
+		if ((dgtRx.ack[1]&0x07) == 0x05) {
 			return 0;
-		else
+		} else {
+			#ifdef debug
+			ERROR_PIN_HI;
+			printf("%.3f ",(float)*timer/1000000);
+			printf("sending end display command failed, negative specific ack:%02x\n",dgtRx.ack[1]);
+			ERROR_PIN_LO;
+			#endif
 			return -1;
+		}
 	}
 
 	//get slow broadcast Reply = display changed
@@ -391,7 +479,11 @@ int dgt3000EndDisplay() {
 	// ack received?
 	if (e<0) {
 		#ifdef debug
+		ERROR_PIN_HI;
 		bug.endDisplayAF++;
+		printf("%.3f ",(float)*timer/1000000);
+		printf("sending end display command failed, no ack\n");
+		ERROR_PIN_LO;
 		#endif
 		return e;
 	}
@@ -399,6 +491,13 @@ int dgt3000EndDisplay() {
 	// display emptied
 	if ((dgtRx.ack[1]&0x07) == 0x00)
 		return 0;
+	
+	#ifdef debug
+	ERROR_PIN_HI;
+	printf("%.3f ",(float)*timer/1000000);
+	printf("sending end display command failed, negative broadcast ack:%02x\n",dgtRx.ack[1]);
+	ERROR_PIN_LO;
+	#endif
 
 	return -1;
 }
@@ -413,7 +512,11 @@ int dgt3000SetDisplay(char dm[]) {
 	// send succesful?
 	if (e<0) {
 		#ifdef debug
+		ERROR_PIN_HI;
 		bug.displaySF++;
+		printf("%.3f ",(float)*timer/1000000);
+		printf("sending display command failed, sending failed\n");
+		ERROR_PIN_LO;
 		#endif
 		return e;
 	}
@@ -424,15 +527,23 @@ int dgt3000SetDisplay(char dm[]) {
 	// no reply
 	if (e<0) {
 		#ifdef debug
+		ERROR_PIN_HI;
 		bug.displayAF++;
+		printf("%.3f ",(float)*timer/1000000);
+		printf("sending display command failed, no ack\n");
+		ERROR_PIN_LO;
 		#endif
 		return e;
 	}
 
 	// nack, already displaying message
 	if ((dgtRx.ack[1]&0xf3)==0x23) {
+		#ifdef debug
+		ERROR_PIN_HI;
 		printf("%.3f ",(float)*timer/1000000);
-		printf("sending display command failed three times\n");
+		printf("sending display command failed, display already busy\n");
+		ERROR_PIN_LO;
+		#endif
 		return -1;
 	}
 
@@ -441,7 +552,9 @@ int dgt3000SetDisplay(char dm[]) {
 
 // try three times to end and set de display
 int dgt3000Display(char text[], char beep, char ld, char rd) {
-	int i;
+	int i,e;
+	int sendCount = 0;
+
 
 	for (i=0;i<11;i++) {
 		if(text[i]==0) break;
@@ -454,28 +567,40 @@ int dgt3000Display(char text[], char beep, char ld, char rd) {
 
 	crc_calc(setDisplay);
 
-	sendCount=0;
 	while (1) {
 		sendCount++;
 		if (sendCount>3) {
+			#ifdef debug
+			ERROR_PIN_HI;
 			printf("%.3f ",(float)*timer/1000000);
-			printf("sending clear display failed three times\n");
-			return -3;
+			printf("sending clear display failed three times on error%d\n\n",e);
+			ERROR_PIN_LO;
+			#endif
+			return e;
 		}
+		
+		e=dgt3000EndDisplay();
 		// succes?
-		if (dgt3000EndDisplay()==0) break;
+		if (e==0)
+			break;
 	}
 
 	sendCount=0;
 	while (1) {
 		sendCount++;
 		if (sendCount>3) {
+			#ifdef debug
+			ERROR_PIN_HI;
 			printf("%.3f ",(float)*timer/1000000);
-			printf("sending display command failed three times\n");
-			return -3;
+			printf("sending display command failed three times on error%d\n\n",e);
+			ERROR_PIN_LO;
+			#endif
+			return e;
 		}
 		// succes?
-		if (dgt3000SetDisplay(setDisplay)==0) break;
+		e=dgt3000SetDisplay(setDisplay);
+		if (e==0)
+			break;
 	}
 	return 0;
 }
@@ -484,7 +609,8 @@ int dgt3000Display(char text[], char beep, char ld, char rd) {
 int dgt3000SetNRun(char lr, char lh, char lm, char ls,
 					char rr, char rh, char rm, char rs) {
 	int e;
-
+	int sendCount = 0;
+	
 	setnrun[4]=lh;
 	setnrun[5]=((lm/10)<<4) | (lm%10);
 	setnrun[6]=((ls/10)<<4) | (ls%10);
@@ -495,54 +621,80 @@ int dgt3000SetNRun(char lr, char lh, char lm, char ls,
 
 	crc_calc(setnrun);
 
-	e=i2cSend(setnrun);
+	while (1) {
+		sendCount++;
+		if (sendCount>3) {
+			#ifdef debug
+			ERROR_PIN_HI;
+			printf("%.3f ",(float)*timer/1000000);
+			printf("sending SetNRun failed three times on error%d\n\n",e);
+			ERROR_PIN_LO;
+			#endif
+			return e;
+		}
+		
+		e=i2cSend(setnrun);
 
-	// send succesful?
-	if (e<0) {
+		// send succesful?
+		if (e<0) {
+			#ifdef debug
+			ERROR_PIN_HI;
+			bug.setNRunSF++;
+			printf("%.3f ",(float)*timer/1000000);
+			printf("sending SetNRun command failed, sending failed\n");
+			ERROR_PIN_LO;
+			#endif
+			continue;
+		}
+
+		// listen to our own adress an get Reply
+		e=dgt3000GetAck(0x10,0x0a,10000);
+
+		// ack received?
+		if (e<0) {
+			#ifdef debug
+			ERROR_PIN_HI;
+			bug.setNRunAF++;
+			printf("%.3f ",(float)*timer/1000000);
+			printf("sending SetNRun command failed, no ack\n");
+			ERROR_PIN_LO;
+			#endif
+			continue;
+		}
+
+		// Positive Ack?
+		if (dgtRx.ack[1]==8)
+			return 0;
+
 		#ifdef debug
-		bug.setNRunSF++;
+		ERROR_PIN_HI;
+		printf("%.3f ",(float)*timer/1000000);
+		printf("sending SetNRun command failed, not in mode 25\n");
+		ERROR_PIN_LO;
 		#endif
-		return e;
+		
+		dgt3000Configure();
 	}
-
-	// listen to our own adress an get Reply
-	e=dgt3000GetAck(0x10,0x0a,10000);
-
-	// ack received?
-	if (e<0) {
-		#ifdef debug
-		bug.setNRunAF++;
-		#endif
-		return e;
-	}
-
-	// Positive Ack?
-	if (dgtRx.ack[4]==8)
-		return 0;
-
-	return -1;
 }
 
 // check for messages from dgt3000
 void *dgt3000Receive(void *a) {
-	char rm[255];
+	char rm[RECEIVE_BUFFER_LENGTH];
 	int e;
 	#ifdef debug2
 	int i;
+	#endif
+	
+	#ifdef debug
+	RECEIVE_THREAD_RUNNING_PIN_HI;
 	#endif
 
 	while (dgtRx.on) {
 		if ( (*i2cSlaveFR&0x20) != 0 || (*i2cSlaveFR&2) == 0 ) {
 			pthread_mutex_lock(&receiveMutex);
 
-			#ifdef debug
-			PINKHI;
-			#endif
 			e=i2cReceive(rm);
-			#ifdef debug
-			PINKLO;
-			#endif
-
+			
 			#ifdef debug2
 			if (e>0) {
 				printf("<- ");
@@ -643,26 +795,35 @@ void *dgt3000Receive(void *a) {
 						printf("= Button: 0x%02x>0x%02x\n",rm[5]&0x7f,rm[4]&0x7f);
 						#endif
 						break;
-					default:
 						#ifdef debug
+					default:
+						ERROR_PIN_HI;
 						printf("%.3f ",(float)*timer/1000000);
-						printf("unknown message from clock\n");
+						printf("Receive Error: Unknown message from clock\n");
+						ERROR_PIN_LO;
 						#endif
 				}
 			} else  if (e<0) {
 				#ifdef debug2
 				printf(" = Error: %d\n",e);
 				#endif
-				#ifdef debug
-				printf("%.3f ",(float)*timer/1000000);
-				printf("Receive Error:%d\n",e);
-				#endif
 			}
 			pthread_mutex_unlock(&receiveMutex);
 		} else {
+			#ifdef debug
+			RECEIVE_THREAD_RUNNING_PIN_LO;
+			#endif
 			usleep(400);
+			#ifdef debug
+			RECEIVE_THREAD_RUNNING_PIN_HI;
+			#endif
+
 		}
 	}
+	#ifdef debug
+	RECEIVE_THREAD_RUNNING_PIN_LO;
+	#endif
+
 	return 0;
 }
 
@@ -673,8 +834,6 @@ int dgt3000GetAck(char adr, char cmd, long long int timeOut) {
 
 	pthread_mutex_lock(&receiveMutex);
 
-	// clear so we can receive a new ack.
-	dgtRx.ack[0]=0;
 
 	// listen to given adress
 //	while ((*i2cSlaveFR&0x20) != 0 );
@@ -694,11 +853,15 @@ int dgt3000GetAck(char adr, char cmd, long long int timeOut) {
 		}
 		pthread_cond_timedwait(&receiveCond, &receiveMutex, &receiveTimeOut);
 	}
-	//printf("no ack\n");
+
 	// listen for broadcast again
 	*i2cSlaveSLV=0x00;
 	pthread_mutex_unlock(&receiveMutex);
-	return -3;
+
+	if (dgtRx.ack[0]==cmd)
+		return 0;
+	else
+		return -3;
 }
 
 // return last received time
@@ -723,7 +886,6 @@ int dgt3000GetButton(char *buttons, char *time) {
 		return 0;
 	}
 }
-
 
 // return current button state
 int dgt3000GetButtonState() {
@@ -827,26 +989,43 @@ int i2cSend(char message[]) {
 	// check 256 times if the bus is free. At least for 50us because the clock will send waiting messages 50 us after the previeus one.
 	timeOut=*timer + 10000;   // bus should be free in 10ms
 	#ifdef debug
-	GREENHI;
+	WAIT_FOR_FREE_BUS_PIN_HI;
 	#endif
 	for(i=0;i<256;i++) {
 		// lines low (data is being send, or plug half inserted, or PI I2C peripheral crashed or ...)
-		if (SCL1IN==0 || SDA1IN==0) {
+		if ((SCL1IN==0) || (SDA1IN==0)) {
 			i=0;
 		}
-		if ((*i2cSlaveFR&0x20) != 0 || (*i2cSlaveFR&2) == 0) {
-//			dgt3000Receive();
+		if ( ((*i2cSlaveFR&0x20)!=0) || ((*i2cSlaveFR&2)==0) ) {
 			i=0;
 		}
 		// timeout waiting for bus free, I2C Error (or someone pushes 500 buttons/seccond)
-		if (*timer>timeOut) return -2;
+		if (*timer>timeOut) {
+			#ifdef debug
+			printf("%.3f ",(float)*timer/1000000);
+			printf("    Send error: Bus free timeout, waited more then 10ms for bus to be free\n");
+			if(SCL1IN==0)
+				printf("                SCL low. Remove jack?\n");
+			if(SDA1IN==0)
+				printf("                SDA low. Remove jack?\n");
+			if((*i2cSlaveFR&0x20) != 0)
+				printf("                I2C Slave receive busy, is the receive thread running?\n");
+			if((*i2cSlaveFR&2) == 0)
+				printf("                I2C Slave receive fifo not emtpy, is the receive thread running?\n");
+			#endif
+			return -2;
+		}
 	}
 	#ifdef debug
-	GREENLO;
+	WAIT_FOR_FREE_BUS_PIN_LO;
 	#endif
 
 	// dont let the slave listen to 0 (wierd errors)
 	*i2cSlaveSLV = 0x10;
+
+	// clear ack and hello so we can receive a new ack or hello
+	dgtRx.ack[0]=0;
+	dgtRx.hello=0;
 
 	// start sending
 	*i2cMasterS = 0x302;
@@ -855,8 +1034,18 @@ int i2cSend(char message[]) {
 	// write the rest of the message
 	for (;n<message[2];n++) {
 		// wait for space in the buffer
-		// TODO: timeout (I2CError)
-		while((*i2cMasterS&0x10)==0) if (*i2cMasterS&2) break;
+		timeOut=*timer + 10000;   // should be done in 10ms
+		while((*i2cMasterS&0x10)==0) {
+			if (*i2cMasterS&2)
+				break;
+			if (*timer>timeOut) {
+				#ifdef debug
+				printf("%.3f ",(float)*timer/1000000);
+				printf("    Send error: Buffer free timeout, waited more then 10ms for space in the buffer\n");
+				#endif
+				return -2;
+			}
+		}
 		#ifdef debug2
 		printf("%02x ", message[n]);
 		if(n == message[2]-1)
@@ -866,8 +1055,15 @@ int i2cSend(char message[]) {
 	}
 		
 	// wait for done
-	// TODO; timeout (I2CError)
-	while ((*i2cMasterS&2)==0);
+	timeOut=*timer + 10000;   // should be done in 10ms
+	while ((*i2cMasterS&2)==0)
+		if (*timer>timeOut) {
+			#ifdef debug
+			printf("%.3f ",(float)*timer/1000000);
+			printf("    Send error: done timeout, waited more then 10ms for message to be finished sending\n");
+			#endif
+			return -2;
+		}
 
 	// let the slave listen to 0 again
 	*i2cSlaveSLV = 0x0;
@@ -877,13 +1073,20 @@ int i2cSend(char message[]) {
 
 	// collision or clock off
 	#ifdef debug
-//	PINKHI;
-//	for(i=0;i<200;i++);
-//	PINKLO;
+	if (*i2cMasterS&0x100) {
+		printf("%.3f ",(float)*timer/1000000);
+		printf("    Send error: byte not Acked\n");
+	}
+	if (*i2cMasterS&0x200) {
+		printf("%.3f ",(float)*timer/1000000);
+		printf("    Send error: clock stretch timeout\n");
+	}
 	#endif
 
 	// reset error flags
 	*i2cMasterS=0x300;
+	// clear fifo
+	*i2cMaster|=0x10;
 
 	return -3;
 }
@@ -910,7 +1113,12 @@ int i2cReceive(char m[]) {
 		// timeout
 		if (timeOut<*timer) {
 			#ifdef debug
+			ERROR_PIN_HI;
+			printf("%.3f ",(float)*timer/1000000);
+			printf("    Receive error: Timeout, hardware stays in receive mode for more then 10ms\n");
 			bug.rxTimeout++;
+			hexPrint(m,i);
+			ERROR_PIN_LO;
 			#endif
 			pthread_mutex_unlock(&receiveMutex);
 			return -2;
@@ -921,10 +1129,29 @@ int i2cReceive(char m[]) {
 			m[i]=*i2cSlave & 0xff;
 			i++;
 			// complete packet
-			if (i>2 && i>=m[2]) break;
-		} else
+			if (i>2 && i>=m[2])
+				break;
+			if (i >= RECEIVE_BUFFER_LENGTH) {
+				#ifdef debug
+				ERROR_PIN_HI;
+				bug.rxWrongAdr++;
+				printf("%.3f ",(float)*timer/1000000);
+				printf("    Receive error: Buffer overrun, size to large for the supplied buffer %d bytes.\n",i);
+				hexPrint(m,i);
+				ERROR_PIN_LO;
+				#endif
+				return -4;
+			}
+		} else {
 		// no byte availible receiving a new one will take 70us
-			usleep(70);
+			#ifdef debug
+			RECEIVE_THREAD_RUNNING_PIN_LO;
+			#endif
+			usleep(10);
+			#ifdef debug
+			RECEIVE_THREAD_RUNNING_PIN_HI;
+			#endif
+		}
 	}
 	m[i]=-1;
 
@@ -939,7 +1166,12 @@ int i2cReceive(char m[]) {
 	// not from clock?
 	if (m[1]!=16) {
 		#ifdef debug
+		ERROR_PIN_HI;
 		bug.rxWrongAdr++;
+		printf("%.3f ",(float)*timer/1000000);
+		printf("    Receive error: Wrong adress, Received message not from clock (16) but from %d.\n",m[1]);
+		hexPrint(m,i);
+		ERROR_PIN_LO;
 		#endif
 		return -2;
 	}
@@ -947,10 +1179,20 @@ int i2cReceive(char m[]) {
 	// errors?
 	if (*i2cSlaveRSR&1 || i<5 || i!=m[2] )  {
 		#ifdef debug
-		if(*i2cSlaveRSR&1)
+		ERROR_PIN_HI;
+		printf("%.3f ",(float)*timer/1000000);
+		if(*i2cSlaveRSR&1) {
+			printf("    Receive error: Hardware buffer full.\n");
 			bug.rxBufferFull++;
-		else
+		} else {
+			if (i<5)
+				printf("    Receive Error: Packet to small, %d bytes.\n",i);
+			else
+				printf("    Receive Error: Size mismatch, packet length is %d bytes but received %d bytes.\n",m[2],i);
 			bug.rxSizeMismatch++;
+		}
+		hexPrint(m,i);
+		ERROR_PIN_LO;
 		#endif
 		*i2cSlaveRSR=0;
 		return -5;
@@ -958,9 +1200,14 @@ int i2cReceive(char m[]) {
 
 	if (crc_calc(m)) {
 		#ifdef debug
+		ERROR_PIN_HI;
 		bug.rxCRCFault++;
+		printf("%.3f ",(float)*timer/1000000);
+		printf("    Receive error: CRC Error\n");
+		hexPrint(m,i);
+		ERROR_PIN_LO;
 		#endif
-		return i;
+		return -6;
 	}
 
 	return i;
@@ -979,9 +1226,10 @@ void i2cReset() {
 	*(gpio+1) |= 0x3f000000;
 
 	#ifdef debug
-	// pinmode GPIO17,GPIO27=output for debugging
-	*(gpio+1) = (*(gpio+1)&0xff1fffff) | 0x00200000;
-	*(gpio+2) = (*(gpio+2)&0xff1fffff) | 0x00200000;
+	// pinmode GPIO17,GPIO27,GPIO22=output for debugging
+	*(gpio+1) = (*(gpio+1)&0xff1fffff) | 0x00200000;	// GIO17
+	*(gpio+2) = (*(gpio+2)&0xff1fffff) | 0x00200000;	// GIO27
+	*(gpio+2) = (*(gpio+2)&0xfffffe3f) | 0x00000040;	// GIO22
 	#endif
 
 	// set i2c slave control register to break and off
@@ -998,6 +1246,14 @@ void i2cReset() {
 }
 
 
+// print hex values
+void hexPrint(char bytes[], int length) {
+	int i;
+	
+	for (i=0;i<length;i++)
+		printf("%02x ", bytes[i]);
+	printf("\n");
+}
 
 // calculate checksum and put it in the last byte
 char crc_calc(char *buffer) {
@@ -1020,7 +1276,10 @@ int checkPiModel() {
 	char line [120] ;
 
 	if ((cpuFd = fopen ("/proc/cpuinfo", "r")) == NULL)
-		printf("Unable to open /proc/cpuinfo") ;
+		#ifdef debug
+		printf("Unable to open /proc/cpuinfo") 
+		#endif
+		;
 
 	// Start by looking for the Architecture, then we can look for a B2 revision....
 	while (fgets (line, 120, cpuFd) != NULL)
