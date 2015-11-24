@@ -1,5 +1,5 @@
 /* functions to communicate to a DGT3000 using I2C
- * version 0.5
+ * version 0.7
  *
  * Copyright (C) 2015 DGT
  *
@@ -61,7 +61,6 @@ int main (int argc, char *argv[]) {
 
 	// get direct acces to the perhicels
 	if (dgt3000Init()) return -1;
-
 
 	// configure dgt3000 for mode 25
 	dgt3000Configure();
@@ -161,7 +160,9 @@ int dgt3000Init() {
 
 	memfd = open("/dev/mem",O_RDWR|O_SYNC);
 	if(memfd < 0) {
-		printf("Mem open error\n");
+		#ifdef debug
+		printf("/dev/mem open error, run as root\n");
+		#endif
 		return 1;
 	}
 
@@ -173,8 +174,10 @@ int dgt3000Init() {
 	close(memfd);
 
 	if( gpio_map == MAP_FAILED || timer_map == MAP_FAILED || i2c_slave_map == MAP_FAILED || i2c_master_map == MAP_FAILED) {
+		#ifdef debug
 		printf("Map failed\n");
-		return 1;
+		#endif
+		return -1;
 	}
 
 	// GPIO pointers
@@ -201,9 +204,88 @@ int dgt3000Init() {
 	i2cMasterFIFO = i2cMaster + 4;
 	i2cMasterDiv = i2cMaster + 5;
 
-	// first run (pinmode GPIO17,18 != ALT3)? setup i2c
-	//if((*(gpio+1) & 0x3f000000) != 0x3f000000)
-		i2cReset();
+	// check wiring
+	// configured as an output? probably in use for something else
+	if ((*gpio & 0x1c0) == 0x40) {
+		#ifdef debug
+		printf("Error, GPIO02 configured as output, in use? We asume not a DGTPI\n");
+		#endif
+		return -2;
+	}
+	if ((*gpio & 0xe00) == 0x200) {
+		#ifdef debug
+		printf("Error, GPIO03 configured as output, in use? We asume not a DGTPI\n");
+		#endif
+		return -2;
+	}
+	if ((*(gpio+1) & 0x07000000) == 0x01000000) {
+		#ifdef debug
+		printf("Error, GPIO18 configured as output, in use? We asume not a DGTPI\n");
+		#endif
+		return -2;
+	}
+	if ((*(gpio+1) & 0x38000000) == 0x08000000) {
+		#ifdef debug
+		printf("Error, GPIO19 configured as output, in use? We asume not a DGTPI\n");
+		#endif
+		return -2;
+	}
+	// pinmode GPIO2,GPIO3=input
+	*gpio &= 0xfffff03f;
+	// pinmode GPIO18,GPIO19=input
+	*(gpio+1) &= 0xc0ffffff;
+	usleep(1);
+	// all pins hi through pullup?
+	if ((*gpioin & 0xc000c)!=0xc000c) {
+		#ifdef debug
+		printf("Error, pin(s) low, shortcircuit, or no connection?\n");
+		#endif
+		return -2;
+	}
+	// check SDA connection
+	// gpio18 low
+	*gpioclr = 1<<18;
+	// gpio18 output
+	*(gpio+1) |= 0x01000000;
+	usleep(1);
+	// check gpio 18 and 2
+	if ((*gpioin & 0x40004)!=0) {
+		#ifdef debug
+		printf("Error, SDA not connected\n");
+		#endif
+		// gpio18 back to input
+		*(gpio+1) &= 0xf8ffffff;
+		return -2;
+	}
+	if ((*gpioin & 0x80008)!=0x80008) {
+		#ifdef debug
+		printf("Error, SDA connected to SCL\n");
+		#endif
+		// gpio18 back to input
+		*(gpio+1) &= 0xf8ffffff;
+		return -2;
+	}
+	// gpio18 back to input
+	*(gpio+1) &= 0xf8ffffff;
+	// check SCL connection
+	// gpio19 low
+	*gpioclr = 1<<19;
+	// gpio18 output
+	*(gpio+1) |= 0x08000000;
+	usleep(1);
+	// check gpio 19 and 3
+	if ((*gpioin & 0x80008)!=0) {
+		#ifdef debug
+		printf("Error, SCL not connected\n");
+		#endif
+		// gpio19 back to input
+		*(gpio+1) &= 0xc7ffffff;
+		return -2;
+	}
+	// gpio19 back to input
+	*(gpio+1) &= 0xc7ffffff;	
+	
+	i2cReset();
 
 	// set to I2CMaster destination adress
 	*i2cMasterA=8;
@@ -264,28 +346,25 @@ int dgt3000Configure() {
 			i2cReset();
 			continue;
 		} else if (e==-3) {
-			// message not acked, clock off or collision
-			if ((SCL1IN==0) || (SDA1IN==0) || ((*i2cSlaveFR&0x20)!=0) || ((*i2cSlaveFR&2)==0)) {
-				// collision -> try again
-				continue;
-			} else {
-				// clock off -> wake
-				// wake#++
-				wakeCount++;
+			// message not acked, probably collision
+			continue;
+		} else if (e==-7) {
+			// message not acked, probably clock off -> wake
+			// wake#++
+			wakeCount++;
 
-				// wake#>3? -> error
-				if (wakeCount>3) {
-					#ifdef debug
-					ERROR_PIN_HI;
-					printf("%.3f ",(float)*timer/1000000);
-					printf("sending wake command failed three times\n");
-					ERROR_PIN_LO;
-					#endif
-					return -3;
-				}
-				dgt3000Wake();
-				continue;
+			// wake#>3? -> error
+			if (wakeCount>3) {
+				#ifdef debug
+				ERROR_PIN_HI;
+				printf("%.3f ",(float)*timer/1000000);
+				printf("sending wake command failed three times\n");
+				ERROR_PIN_LO;
+				#endif
+				return -3;
 			}
+			dgt3000Wake();
+			continue;
 		} else {
 			// succes!
 			usleep(5000);
@@ -304,7 +383,7 @@ int dgt3000Wake() {
 
 	// send wake
 	*i2cMasterA=40;
-	e=i2cSend(ping);
+	e=i2cSend(ping,0x00);
 	*i2cMasterA=8;
 
 	// succes? -> error. Wake messages should never get an Ack
@@ -341,7 +420,7 @@ int dgt3000SetCC() {
 	int e;
 
 	// send setCC, error? retry
-	e=i2cSend(centralControll);
+	e=i2cSend(centralControll,0x10);
 
 	// send succedfull?
 	if (e<0) {
@@ -394,7 +473,7 @@ int dgt3000Mode25() {
 	crc_calc(mode25);
 
 	// send mode 25 message
-	e=i2cSend(mode25);
+	e=i2cSend(mode25, 0x10);
 
 	// send succesful?
 	if (e<0) {
@@ -441,7 +520,7 @@ int dgt3000EndDisplay() {
 	int e;
 
 	// send end Display
-	e=i2cSend(endDisplay);
+	e=i2cSend(endDisplay,0x10);
 
 	// send succesful?
 	if (e<0) {
@@ -507,7 +586,7 @@ int dgt3000SetDisplay(char dm[]) {
 	int e;
 
 	// send the message
-	e=i2cSend(dm);
+	e=i2cSend(dm,0x00);
 
 	// send succesful?
 	if (e<0) {
@@ -559,6 +638,10 @@ int dgt3000Display(char text[], char beep, char ld, char rd) {
 	for (i=0;i<11;i++) {
 		if(text[i]==0) break;
 		setDisplay[i+4]=text[i];
+	}
+
+	for (;i<11;i++) {
+		setDisplay[i+4]=' ';
 	}
 
 	setDisplay[16]=beep;
@@ -633,7 +716,7 @@ int dgt3000SetNRun(char lr, char lh, char lm, char ls,
 			return e;
 		}
 		
-		e=i2cSend(setnrun);
+		e=i2cSend(setnrun,0x10);
 
 		// send succesful?
 		if (e<0) {
@@ -752,8 +835,10 @@ void *dgt3000Receive(void *a) {
 						if((rm[4]&0x20) != (rm[5]&0x20)) {
 							// buffer full?
 							if ((dgtRx.buttonEnd+1)%DGTRX_BUTTON_BUFFER_SIZE == dgtRx.buttonStart) {
+								#ifdef debug
 								printf("%.3f ",(float)*timer/1000000);
 								printf("Button buffer full, on/off ignored\n");
+								#endif
 							} else {
 								dgtRx.buttonPres[dgtRx.buttonEnd]=0x20 | ((rm[5]&0x20)<<2);
 								dgtRx.buttonTime[dgtRx.buttonEnd]=0;
@@ -769,8 +854,10 @@ void *dgt3000Receive(void *a) {
 								ww=1;
 							// buffer full?
 							if ((dgtRx.buttonEnd+1)%DGTRX_BUTTON_BUFFER_SIZE == dgtRx.buttonStart) {
+								#ifdef debug
 								printf("%.3f ",(float)*timer/1000000);
 								printf("Button buffer full, lever change ignored\n");
+								#endif
 							} else {
 								dgtRx.buttonPres[dgtRx.buttonEnd]=0x40 | ((rm[4]&0x40)<<1);
 								dgtRx.buttonTime[dgtRx.buttonEnd]=0;
@@ -782,8 +869,10 @@ void *dgt3000Receive(void *a) {
 						if((rm[4]&0x1f) == 0 && dgtRx.buttonState != 0) {
 							// buffer full?
 							if ((dgtRx.buttonEnd+1)%DGTRX_BUTTON_BUFFER_SIZE == dgtRx.buttonStart) {
+								#ifdef debug
 								printf("%.3f ",(float)*timer/1000000);
 								printf("Button buffer full, buttons ignored\n");
+								#endif
 							} else {
 								dgtRx.buttonPres[dgtRx.buttonEnd]=dgtRx.buttonState;
 								dgtRx.buttonTime[dgtRx.buttonEnd]=rm[8];
@@ -846,8 +935,6 @@ int dgt3000GetAck(char adr, char cmd, long long int timeOut) {
 
 	while (*timer<timeOut) {
 		if (dgtRx.ack[0]==cmd) {
-			// listen for broadcast again
-			*i2cSlaveSLV=0x00;
 			pthread_mutex_unlock(&receiveMutex);
 			return 0;
 		}
@@ -901,7 +988,7 @@ int dgt3000Off(char returnMode) {
 
 
 	// send mode 25 message
-	e=i2cSend(mode25);
+	e=i2cSend(mode25,0x10);
 
 	// send succesful?
 	if (e<0) {
@@ -930,7 +1017,7 @@ int dgt3000Off(char returnMode) {
 
 
 	// send mode 25 message
-	e=i2cSend(mode25);
+	e=i2cSend(mode25,0x00);
 
 	// send succesful?
 	if (e<0) {
@@ -956,12 +1043,17 @@ void dgt3000Stop() {
 
 	// disable i2cSlave device
 	*i2cSlaveCR=0;
+	
+	// pinmode GPIO2,GPIO3=input
+	*gpio &= 0xfffff03f;
+	// pinmode GPIO18,GPIO19=input
+	*(gpio+1) &= 0xc0ffffff;
 }
 
 
 
 // send message using I2CMaster
-int i2cSend(char message[]) {
+int i2cSend(char message[], char ackAdr) {
 	int i, n;
 	long long int timeOut;
 
@@ -1020,25 +1112,33 @@ int i2cSend(char message[]) {
 	WAIT_FOR_FREE_BUS_PIN_LO;
 	#endif
 
-	// dont let the slave listen to 0 (wierd errors)
-	*i2cSlaveSLV = 0x10;
-
 	// clear ack and hello so we can receive a new ack or hello
 	dgtRx.ack[0]=0;
 	dgtRx.hello=0;
+
+	// dont let the slave listen to 0 (wierd errors)?
+	// listen to ack adress
+	*i2cSlaveSLV = ackAdr;
 
 	// start sending
 	*i2cMasterS = 0x302;
 	*i2cMaster = 0x8080;
 
 	// write the rest of the message
-	for (;n<message[2];n++) {
+	for (; n<message[2]; n++) {
 		// wait for space in the buffer
 		timeOut=*timer + 10000;   // should be done in 10ms
 		while((*i2cMasterS&0x10)==0) {
-			if (*i2cMasterS&2)
+			if (*i2cMasterS&2) {
+				*i2cSlaveSLV = 0x00;
+				#ifdef debug
+				printf("%.3f ",(float)*timer/1000000);
+				printf("    Send error: done before complete send\n");
+				#endif
 				break;
+			}
 			if (*timer>timeOut) {
+				*i2cSlaveSLV = 0x00;
 				#ifdef debug
 				printf("%.3f ",(float)*timer/1000000);
 				printf("    Send error: Buffer free timeout, waited more then 10ms for space in the buffer\n");
@@ -1046,6 +1146,8 @@ int i2cSend(char message[]) {
 				return -2;
 			}
 		}
+		if (*i2cMasterS&2)
+			break;
 		#ifdef debug2
 		printf("%02x ", message[n]);
 		if(n == message[2]-1)
@@ -1058,6 +1160,7 @@ int i2cSend(char message[]) {
 	timeOut=*timer + 10000;   // should be done in 10ms
 	while ((*i2cMasterS&2)==0)
 		if (*timer>timeOut) {
+			*i2cSlaveSLV = 0x00;
 			#ifdef debug
 			printf("%.3f ",(float)*timer/1000000);
 			printf("    Send error: done timeout, waited more then 10ms for message to be finished sending\n");
@@ -1065,30 +1168,51 @@ int i2cSend(char message[]) {
 			return -2;
 		}
 
-	// let the slave listen to 0 again
-	*i2cSlaveSLV = 0x0;
-
 	// succes?
-	if ((*i2cMasterS&0x300)==0) return 0;
+	if ((*i2cMasterS&0x300)==0) {
+//		*i2cSlaveSLV = ackAdr;
+		return 0;
+	}
 
+	*i2cSlaveSLV = 0x00;
+	
 	// collision or clock off
-	#ifdef debug
 	if (*i2cMasterS&0x100) {
+		// reset error flags
+		*i2cMasterS=0x100;
+		#ifdef debug
 		printf("%.3f ",(float)*timer/1000000);
 		printf("    Send error: byte not Acked\n");
+		#endif
 	}
 	if (*i2cMasterS&0x200) {
+		// reset error flags
+		*i2cMasterS=0x200;
+		#ifdef debug
 		printf("%.3f ",(float)*timer/1000000);
-		printf("    Send error: clock stretch timeout\n");
+		printf("    Send error: collision, clock stretch timeout\n");
+		#endif
+		
+		// probably collision
+		return -3;
 	}
-	#endif
 
-	// reset error flags
-	*i2cMasterS=0x300;
 	// clear fifo
-	*i2cMaster|=0x10;
+	*i2cMaster|=0x10;		
+		
 
-	return -3;
+	if ((SCL1IN==0) || (SDA1IN==0) || ((*i2cSlaveFR&0x20)!=0) || ((*i2cSlaveFR&2)==0)) {
+		#ifdef debug
+		printf("%.3f ",(float)*timer/1000000);
+		printf("    Send error: collision, lines busy after send.\n");
+		#endif
+		
+		// probably collision
+		return -3;
+	}
+	
+	// probably clock off
+	return -7;
 }
 
 // get message from I2C receive buffer
@@ -1153,6 +1277,10 @@ int i2cReceive(char m[]) {
 			#endif
 		}
 	}
+
+	// listen for broadcast again
+	*i2cSlaveSLV=0x00;
+
 	m[i]=-1;
 
 	// nothing?
@@ -1213,19 +1341,53 @@ int i2cReceive(char m[]) {
 	return i;
 }
 
-// configure IO pins and I2C Master and Slave
-void i2cReset() {
-	// pinmode GPIO2,GPIO3=ALT0 (togle via input to reset i2C master(sometimes hangs))
-	*gpio &= 0xfffff03f;
-	usleep(1000);	// not tested! some delay needed
-	*gpio |= 0x900;
+// read register
+static unsigned int dummyRead(volatile unsigned int *addr) {
+	return *addr;
+}
 
-	// pinmode GPIO18,GPIO19=ALT3 (togle via input to reset)
+// configure IO pins and I2C Master and Slave
+void i2cReset() {	
+	*i2cSlaveCR = 0;
+	*i2cMaster = 0x10;
+	*i2cMaster = 0x8000;
+	
+	// pinmode GPIO2,GPIO3=input (togle via input to reset i2C master(sometimes hangs))
+	*gpio &= 0xfffff03f;
+	// pinmode GPIO18,GPIO19=input (togle via input to reset)
 	*(gpio+1) &= 0x00ffffff;
-	usleep(1000);
+	// send something in case master hangs
+	//*i2cMasterFIFO = 0x69;
+	*i2cMasterDLEN = 0;
+	*i2cMaster = 0x8080;
+	while((*i2cSlaveFR&2) == 0) {
+		dummyRead(i2cSlave);
+	}
+	usleep(1000);	// not tested! some delay maybe needed
+	*i2cSlaveCR = 0;
+	*i2cMasterS = 0x302;
+	*i2cMaster = 10;
+	// pinmode GPIO2,GPIO3=ALT0
+	*gpio |= 0x900;
+	// pinmode GPIO18,GPIO19=ALT3
 	*(gpio+1) |= 0x3f000000;
 
+	usleep(1000);	// not tested! some delay maybe needed
+
+
 	#ifdef debug
+	if ((SDA1IN==0) || (SCL1IN==0)) {
+		printf("I2C Master might be stuck in transfer?\n");
+		printf("FIFO=%x\n",*i2cMasterFIFO);
+		printf("C   =%x\n",*i2cMaster);
+		printf("S   =%x\n",*i2cMasterS);
+		printf("DLEN=%x\n",*i2cMasterDLEN);
+		printf("A   =%x\n",*i2cMasterA);
+		printf("FIFO=%x\n",*i2cMasterFIFO);
+		printf("DIV =%x\n",*i2cMasterDiv);
+		printf("SDA=%x\n",SDA1IN);
+		printf("SCL=%x\n",SCL1IN);
+	}
 	// pinmode GPIO17,GPIO27,GPIO22=output for debugging
 	*(gpio+1) = (*(gpio+1)&0xff1fffff) | 0x00200000;	// GIO17
 	*(gpio+2) = (*(gpio+2)&0xff1fffff) | 0x00200000;	// GIO27

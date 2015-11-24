@@ -1,5 +1,5 @@
 /* functions to communicate to a DGT3000 using I2C
- * version 0.5
+ * version 0.7
  *
  * Copyright (C) 2015 DGT
  *
@@ -184,14 +184,17 @@ int i2cReceive(char m[]);
 /* send message using I2CMaster
 	 message[] = the message to send
 	 returns:
-	 -3 = message not Acked, Clock off or collision
+	 -7 = message not Acked, probably clock off
+	 -3 = message not Acked, probably collision
 	 -2 = I2C Error
 	 0 = Succes */
-int i2cSend(char message[]);
+int i2cSend(char message[], char ackAdr);
 
 
 /* Get direct access to BCM2708/9
 	returns:
+	-2 = I2C connection error no dgtpi?
+	-1 = fail, no root access to /dev/mem
 	0 = succes
 	1 = fail (run as root!) */
 int dgt3000Init(void);
