@@ -163,7 +163,7 @@ int dgt3000Init() {
 		#ifdef debug
 		printf("/dev/mem open error, run as root\n");
 		#endif
-		return 1;
+		return -1;
 	}
 
 	gpio_map = mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_SHARED, memfd, GPIO_BASE+base);
