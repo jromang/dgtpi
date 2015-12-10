@@ -9,8 +9,9 @@ lib = ctypes.cdll.LoadLibrary("/home/pi/20151124/dgt3000.so")
 #time=c_char()
 but=ctypes.c_byte(0)
 buttime=ctypes.c_byte(0)
-run=1
+clktime = ctypes.create_string_buffer(6)
 
+run=1
 res = lib.dgt3000Init()
 if(res < 0):
 	sys.exit(res)
