@@ -259,6 +259,15 @@ int dgt3000SetDisplay(char dm[]);
 int dgt3000SetNRun(char lr, char lh, char lm, char ls,
 					char rr, char rh, char rm, char rs);
 
+/* send set and run command to dgt3000 with current clock values
+	lr/rr = left/right run mode, 0=stop, 1=count down, 2=count up
+	returns:
+	-3 = sending failed, clock off (or collision)
+	-2 = sending failed, I2C error
+	-1 = no (positive)ack received, not in CC
+	0 = succes */
+int dgt3000Run(char lr, char rr);				
+
 /* try three times to end and set de display
 	text = message to display
 	beep = beep length (/62.5ms) max 48 (3s)

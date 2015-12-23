@@ -49,6 +49,8 @@ void *wl(void *x) {
 			#ifdef debug
 			bug.sendTotal++;
 			#endif
+		} else {
+			usleep(10000);
 		}
 	return 0;
 }
@@ -115,9 +117,16 @@ int main (int argc, char *argv[]) {
 			if (dgt3000GetButton(&but,&tim)) {
 				printf("%.3f ",(float)*timer/1000000);
 				printf("button=%02x, time=%d\n",but,tim);
+				if (but&0x40) {
+					if (ww)
+						ww=0;
+					else
+						ww=1;
+				}
 				if (but==0x20) {
 					break;
 				}
+			//	dgt3000EndDisplay();
 			}
 
 			usleep(10000);
@@ -760,6 +769,18 @@ int dgt3000SetNRun(char lr, char lh, char lm, char ls,
 	}
 }
 
+int dgt3000Run(char lr, char rr) {
+	return dgt3000SetNRun(lr,
+							dgtRx.time[0],
+							((dgtRx.time[1]&0xf0)>>4)*10 + (dgtRx.time[1]&0x0f),
+							((dgtRx.time[2]&0xf0)>>4)*10 + (dgtRx.time[2]&0x0f),
+							rr,
+							dgtRx.time[3],
+							((dgtRx.time[4]&0xf0)>>4)*10 + (dgtRx.time[4]&0x0f),
+							((dgtRx.time[5]&0xf0)>>4)*10 + (dgtRx.time[5]&0x0f));
+							
+}
+
 // check for messages from dgt3000
 void *dgt3000Receive(void *a) {
 	char rm[RECEIVE_BUFFER_LENGTH];
@@ -848,10 +869,6 @@ void *dgt3000Receive(void *a) {
 
 						// lever change?
 						if((rm[4]&0x40) != (rm[5]&0x40)) {
-							if (ww)
-								ww=0;
-							else
-								ww=1;
 							// buffer full?
 							if ((dgtRx.buttonEnd+1)%DGTRX_BUTTON_BUFFER_SIZE == dgtRx.buttonStart) {
 								#ifdef debug
