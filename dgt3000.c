@@ -103,8 +103,9 @@ int main (int argc, char *argv[]) {
 		printf("%.3f ",(float)*timer/1000000);
 		printf("started\n");
 		ww=1;
-		pthread_t w;
-		pthread_create(&w, NULL, wl, NULL);
+	//	pthread_t w;
+	//	pthread_create(&w, NULL, wl, NULL);
+		dgt3000Off(1);
 		but=tim=0;
 		while(1) {
 
@@ -131,6 +132,8 @@ int main (int argc, char *argv[]) {
 
 			usleep(10000);
 		}
+		dgt3000Configure();
+		dgt3000Display("Booting",0,0,0);
 	}
 
 	dgt3000Stop();
