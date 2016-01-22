@@ -29,7 +29,7 @@
  */
 int dgtpicom_init(void);
 
-/* Configure the dgt3000: turn it on, set central controll and set
+/* Configure the dgt3000: turn it on, set central control and set
  * mode 25. If neccesary reset the I2C hardware.
  *   Run this before any command and if commands fail
  */
@@ -115,11 +115,12 @@ void dgtpicom_stop();
 
 
 /* return codes:
+ *   -10= no direct access to memory, run as root
  *   -9 = receive failed, software buffer overrun, should not happen
- *   -8 = receive failed, Hardware buffer overrun, load to hi
+ *   -8 = receive failed, packet to small, hardware buffer overrun
  *   -7 = receive failed, CRC error, probably noise
  *   -6 = sending failed, hardware timeout, probably hardware fault
- *   -5 = sending failed, lines low after send, probably collision
+ *   -5 = sending failed, lines low, probably collision
  *   -4 = sending failed, clock stretch timeout, probably collision
  *   -3 = sending failed, no response, probably clock off
  *   -2 = no ack received
