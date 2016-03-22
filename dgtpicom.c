@@ -284,7 +284,7 @@ int dgtpicom_init() {
 	// check SCL connection
 	// gpio19 low
 	*gpioclr = 1<<19;
-	// gpio18 output
+	// gpio19 output
 	*(gpio+1) |= 0x08000000;
 	usleep(1);
 	// check gpio 19 and 3
@@ -297,8 +297,8 @@ int dgtpicom_init() {
 		return ERROR_LINES;
 	}
 	// gpio19 back to input
-	*(gpio+1) &= 0xc7ffffff;	
-	
+	*(gpio+1) &= 0xc7ffffff;
+
 	i2cReset();
 
 	// set to I2CMaster destination adress
@@ -393,7 +393,7 @@ int dgtpicom_set_and_run(char lr, char lh, char lm, char ls,
 						 char rr, char rh, char rm, char rs) {
 	int e;
 	int sendCount = 0;
-	
+
 	setnrun[4]=lh;
 	setnrun[5]=((lm/10)<<4) | (lm%10);
 	setnrun[6]=((ls/10)<<4) | (ls%10);
@@ -415,15 +415,15 @@ int dgtpicom_set_and_run(char lr, char lh, char lm, char ls,
 			#endif
 			return e;
 		}
-		
+
 		e=dgt3000SetNRun(setnrun);
-		
+
 		// succes?
 		if (e==ERROR_OK)
 			return ERROR_OK;
 	}
 }
-	
+
 // Send set and run command to the dgt3000 with current clock values.
 int dgtpicom_run(char lr, char rr) {
 	return dgtpicom_set_and_run(
@@ -435,7 +435,6 @@ int dgtpicom_run(char lr, char rr) {
 				dgtRx.time[3],
 				((dgtRx.time[4]&0xf0)>>4)*10 + (dgtRx.time[4]&0x0f),
 				((dgtRx.time[5]&0xf0)>>4)*10 + (dgtRx.time[5]&0x0f));
-							
 }
 
 // Set a text message on the DGT3000.
@@ -470,7 +469,7 @@ int dgtpicom_set_text(char text[], char beep, char ld, char rd) {
 			#endif
 			return e;
 		}
-		
+
 		e=dgt3000EndDisplay();
 		// succes?
 		if (e==ERROR_OK)
@@ -513,7 +512,7 @@ int dgtpicom_end_text() {
 			#endif
 			return e;
 		}
-		
+
 		e=dgt3000EndDisplay();
 		// succes?
 		if (e==ERROR_OK)
@@ -538,7 +537,7 @@ int dgtpicom_get_button_message(char *buttons, char *time) {
 	dgtRx.error=0;
 	if (e<0)
 		return e;
-		
+
 	//button availible?
 	if(dgtRx.buttonStart != dgtRx.buttonEnd) {
 		*buttons=dgtRx.buttonPres[dgtRx.buttonStart];
@@ -620,7 +619,7 @@ void dgtpicom_stop() {
 
 	// disable i2cSlave device
 	*i2cSlaveCR=0;
-	
+
 	// pinmode GPIO2,GPIO3=input
 	*gpio &= 0xfffff03f;
 	// pinmode GPIO18,GPIO19=input
@@ -668,7 +667,7 @@ int dgt3000Wake() {
 	printf("sending wake command failed, no hello\n");
 	ERROR_PIN_LO;
 	#endif
-	
+
 	return ERROR_NOACK;
 }
 
@@ -710,7 +709,7 @@ int dgt3000SetCC() {
 	// is positive ack?
 	if ((dgtRx.ack[1]&8) == 8)
 		return ERROR_OK;
-	
+
 	#ifdef debug
 	ERROR_PIN_HI;
 	printf("%.3f ",(float)*timer/1000000);
@@ -767,7 +766,7 @@ int dgt3000Mode25() {
 	printf("sending mode25 command failed, negative ack, not in Central Controll\n");
 	ERROR_PIN_LO;
 	#endif
-	
+
 	// negetive ack not in CC
 	return ERROR_NACK;
 }
@@ -827,7 +826,7 @@ int dgt3000EndDisplay() {
 	// display emptied
 	if ((dgtRx.ack[1]&0x07) == 0x00)
 		return ERROR_OK;
-	
+
 	#ifdef debug
 	ERROR_PIN_HI;
 	printf("%.3f ",(float)*timer/1000000);
@@ -889,7 +888,7 @@ int dgt3000Display(char dm[]) {
 // send set and run command to dgt3000
 int dgt3000SetNRun(char srm[]) {
 	int e;
-		
+
 	e=i2cSend(srm,0x10);
 
 	// send succesful?
@@ -903,10 +902,10 @@ int dgt3000SetNRun(char srm[]) {
 		#endif
 		return e;
 	}
-	
+
 	// listen to our own adress an get Reply
 	e=dgt3000GetAck(0x10,0x0a,10000);
-	
+
 	// ack received?
 	if (e<0) {
 		#ifdef debug
@@ -942,7 +941,7 @@ void *dgt3000Receive(void *a) {
 	#ifdef debug2
 	int i;
 	#endif
-	
+
 	#ifdef debug
 	RECEIVE_THREAD_RUNNING_PIN_HI;
 	#endif
@@ -952,7 +951,7 @@ void *dgt3000Receive(void *a) {
 			pthread_mutex_lock(&receiveMutex);
 
 			e=i2cReceive(rm);
-			
+
 			#ifdef debug2
 			if (e>0) {
 				printf("<- ");
@@ -1136,11 +1135,10 @@ int i2cSend(char message[], char ackAdr) {
 
 	// clear buffer
 	*i2cMaster = 0x10;
-	
+
 	#ifdef debug2
 	printf("-> %02x ", message[0]);
 	#endif
-		
 
 	// fill the buffer
 	for (n=1;n<message[2] && *i2cMasterS&0x10;n++) {
@@ -1229,7 +1227,7 @@ int i2cSend(char message[], char ackAdr) {
 		#endif
 		*i2cMasterFIFO=message[n];
 	}
-		
+
 	// wait for done
 	timeOut=*timer + 10000;   // should be done in 10ms
 	while ((*i2cMasterS&2)==0)
@@ -1245,11 +1243,12 @@ int i2cSend(char message[], char ackAdr) {
 	// succes?
 	if ((*i2cMasterS&0x300)==0) {
 //		*i2cSlaveSLV = ackAdr;
+		printf("sending OK MasterStatus=%d\n",*i2cMasterS);
 		return ERROR_OK;
 	}
 
 	*i2cSlaveSLV = 0x00;
-	
+
 	// collision or clock off
 	if (*i2cMasterS&0x100) {
 		// reset error flags
@@ -1266,25 +1265,24 @@ int i2cSend(char message[], char ackAdr) {
 		printf("%.3f ",(float)*timer/1000000);
 		printf("    Send error: collision, clock stretch timeout\n");
 		#endif
-		
+
 		// probably collision
 		return ERROR_CST;
 	}
 
 	// clear fifo
-	*i2cMaster|=0x10;		
-		
+	*i2cMaster|=0x10;
 
 	if ((SCL1IN==0) || (SDA1IN==0) || ((*i2cSlaveFR&0x20)!=0) || ((*i2cSlaveFR&2)==0)) {
 		#ifdef debug
 		printf("%.3f ",(float)*timer/1000000);
 		printf("    Send error: collision, lines busy after send.\n");
 		#endif
-		
+
 		// probably collision
 		return ERROR_LINES;
 	}
-	
+
 	// probably clock off
 	return ERROR_SILENT;
 }
@@ -1421,23 +1419,23 @@ static unsigned int dummyRead(volatile unsigned int *addr) {
 }
 
 // configure IO pins and I2C Master and Slave
-void i2cReset() {	
+void i2cReset() {
 	*i2cSlaveCR = 0;
 	*i2cMaster = 0x10;
-	*i2cMaster = 0x8000;
-	
+	*i2cMaster = 0x0;
+
 	// pinmode GPIO2,GPIO3=input (togle via input to reset i2C master(sometimes hangs))
 	*gpio &= 0xfffff03f;
 	// pinmode GPIO18,GPIO19=input (togle via input to reset)
 	*(gpio+1) &= 0x00ffffff;
 	// send something in case master hangs
-	//*i2cMasterFIFO = 0x69;
+	*i2cMasterFIFO = 0x69;
 	*i2cMasterDLEN = 0;
 	*i2cMaster = 0x8080;
 	while((*i2cSlaveFR&2) == 0) {
 		dummyRead(i2cSlave);
 	}
-	usleep(1000);	// not tested! some delay maybe needed
+	usleep(2000);	// not tested! some delay maybe needed
 	*i2cSlaveCR = 0;
 	*i2cMasterS = 0x302;
 	*i2cMaster = 10;
@@ -1484,7 +1482,7 @@ void i2cReset() {
 // print hex values
 void hexPrint(char bytes[], int length) {
 	int i;
-	
+
 	for (i=0;i<length;i++)
 		printf("%02x ", bytes[i]);
 	printf("\n");
