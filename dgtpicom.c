@@ -58,7 +58,7 @@ void *wl(void *x) {
 }
 
 int main (int argc, char *argv[]) {
-	//int e;
+	int e;
 	//char message[255];
 	//char t[6]
 	char but,tim;
@@ -67,7 +67,9 @@ int main (int argc, char *argv[]) {
 	if (dgtpicom_init()) return ERROR_MEM;
 
 	// configure dgt3000 for mode 25
-	printf("%d\n",dgtpicom_configure());
+	e = dgtpicom_configure();
+	if (e<0)
+		return e;
 
 	// 7 arguments -> setnrun
 	if (argc==8) {
@@ -102,11 +104,12 @@ int main (int argc, char *argv[]) {
 		// try three times to end and set de display
 		dgtpicom_set_text(argv[1],beep,ldots,rdots);
 	} else {
-		printf("%.3f ",(float)*timer/1000000);
-		printf("started\n");
-		ww=1;
-	//	pthread_t w;
-	//	pthread_create(&w, NULL, wl, NULL);
+//		printf("  %.3f ",(float)*timer/1000000);
+//		printf("started\n");
+//usleep(10000);
+//		ww=1;
+//		pthread_t w;
+//		pthread_create(&w, NULL, wl, NULL);
 		dgtpicom_off(1);
 		but=tim=0;
 		while(1) {
@@ -118,8 +121,6 @@ int main (int argc, char *argv[]) {
 		//	printf("time=%d:%02d.%02d %d:%02d.%02d\n",t[0],t[1],t[2],t[3],t[4],t[5]);
 
 			if (dgtpicom_get_button_message(&but,&tim)) {
-				printf("%.3f ",(float)*timer/1000000);
-				printf("button=%02x, time=%d\n",but,tim);
 				if (but&0x40) {
 					if (ww)
 						ww=0;
@@ -129,13 +130,15 @@ int main (int argc, char *argv[]) {
 				if (but==0x20) {
 					break;
 				}
+				printf("%.3f ",(float)*timer/1000000);
+				printf("button=%02x, time=%d\n",but,tim);
 			//	dgt3000EndDisplay();
 			}
 
 			usleep(10000);
 		}
-		dgtpicom_configure();
-		dgtpicom_set_text("Booting",0,0,0);
+//		dgtpicom_configure();
+//		dgtpicom_set_text("Booting",0,0,0);
 	}
 
 	dgtpicom_stop();
@@ -256,7 +259,7 @@ int dgtpicom_init() {
 		#endif
 		return ERROR_LINES;
 	}
-	// check SDA connection
+/*	// check SDA connection
 	// gpio18 low
 	*gpioclr = 1<<18;
 	// gpio18 output
@@ -298,7 +301,7 @@ int dgtpicom_init() {
 	}
 	// gpio19 back to input
 	*(gpio+1) &= 0xc7ffffff;
-
+*/
 	i2cReset();
 
 	// set to I2CMaster destination adress
@@ -343,6 +346,7 @@ int dgtpicom_configure() {
 					#endif
 					return e;
 				}
+				usleep(10000);
 				if (dgt3000SetCC()==0) break;
 			}
 		} else if (e==ERROR_TIMEOUT) {
@@ -562,7 +566,7 @@ int dgtpicom_off(char returnMode) {
 	crc_calc(mode25);
 
 
-	// send mode 25 message
+/*	// send mode 25 message
 	e=i2cSend(mode25,0x10);
 
 	// send succesful?
@@ -587,7 +591,7 @@ int dgtpicom_off(char returnMode) {
 	// negetive ack not in CC
 	if (dgtRx.ack[1]!=8)
 		return ERROR_NACK;
-
+*/
 	mode25[4]=0;
 	crc_calc(mode25);
 
@@ -1243,7 +1247,6 @@ int i2cSend(char message[], char ackAdr) {
 	// succes?
 	if ((*i2cMasterS&0x300)==0) {
 //		*i2cSlaveSLV = ackAdr;
-		printf("sending OK MasterStatus=%d\n",*i2cMasterS);
 		return ERROR_OK;
 	}
 
@@ -1422,7 +1425,7 @@ static unsigned int dummyRead(volatile unsigned int *addr) {
 void i2cReset() {
 	*i2cSlaveCR = 0;
 	*i2cMaster = 0x10;
-	*i2cMaster = 0x0;
+	*i2cMaster = 0x8000;
 
 	// pinmode GPIO2,GPIO3=input (togle via input to reset i2C master(sometimes hangs))
 	*gpio &= 0xfffff03f;
@@ -1435,7 +1438,7 @@ void i2cReset() {
 	while((*i2cSlaveFR&2) == 0) {
 		dummyRead(i2cSlave);
 	}
-	usleep(2000);	// not tested! some delay maybe needed
+	usleep(1000);	// not tested! some delay maybe needed
 	*i2cSlaveCR = 0;
 	*i2cMasterS = 0x302;
 	*i2cMaster = 10;
@@ -1476,7 +1479,9 @@ void i2cReset() {
 	*i2cSlaveRSR = 0;
 
 	// set i2c master to 100khz
-	*i2cMasterDiv = 0x9c4;
+	*i2cMasterDiv = 0xa47;		// 95khz works better
+//	*i2cMasterDiv = 0x9c4;		// 100khz
+//	*i2cMasterDiv = 0x271;		// 400khz
 }
 
 // print hex values
