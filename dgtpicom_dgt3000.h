@@ -114,6 +114,8 @@ typedef struct {
 	char buttonTime[DGTRX_BUTTON_BUFFER_SIZE];
 	int buttonStart;
 	int buttonEnd;
+	long long int buttonRepeatTime;
+	char buttonCount;
 	char buttonState;
 	char lastButtonState;
 	char time[6];

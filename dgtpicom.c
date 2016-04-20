@@ -100,17 +100,58 @@ int main (int argc, char *argv[]) {
 			rdots=atoi(argv[4]);
 		}
 
+		if ( argv[1][0]=='~' ) {
+			dgtpicom_set_text("DGT PI",beep,ldots,rdots);
+			while(1) {
+				usleep(1000000);
+				dgtpicom_set_text(" DGT PI",0,ldots,rdots);
+				usleep(1000000);
+				dgtpicom_set_text("  DGT PI",0,ldots,rdots);
+				usleep(1000000);
+				dgtpicom_set_text("   DGT PI",0,ldots,rdots);
+				usleep(1000000);
+				dgtpicom_set_text("    DGT PI",0,ldots,rdots);
+				usleep(1000000);
+				dgtpicom_set_text("     DGT PI",0,ldots,rdots);
+				usleep(1000000);
+				dgtpicom_set_text("    DGT PI",0,ldots,rdots);
+				usleep(1000000);
+				dgtpicom_set_text("   DGT PI",0,ldots,rdots);
+				usleep(1000000);
+				dgtpicom_set_text("  DGT PI",0,ldots,rdots);
+				usleep(1000000);
+				dgtpicom_set_text(" DGT PI",0,ldots,rdots);
+				usleep(1000000);
+				dgtpicom_set_text("DGT PI",0,ldots,rdots);
+			}
+		} else if ( argv[1][0]=='*' ){
+			while(1) {
+				dgtpicom_set_text("  DGT PI  -",beep,ldots,rdots);
+				usleep(200000);
+				dgtpicom_set_text("  DGT PI  \\",beep,ldots,rdots);
+				usleep(200000);
+				dgtpicom_set_text("  DGT PI  |",beep,ldots,rdots);
+				usleep(200000);
+				dgtpicom_set_text("  DGT PI  /",beep,ldots,rdots);
+				usleep(200000);
+			}
+		} else {
+			// try three times to end and set de display
+			dgtpicom_set_text(argv[1],beep,ldots,rdots);
+		}
 
-		// try three times to end and set de display
-		dgtpicom_set_text(argv[1],beep,ldots,rdots);
+
 	} else {
-//		printf("  %.3f ",(float)*timer/1000000);
-//		printf("started\n");
-//usleep(10000);
-//		ww=1;
-//		pthread_t w;
-//		pthread_create(&w, NULL, wl, NULL);
-		dgtpicom_off(1);
+		#ifdef debug
+		printf("  %.3f ",(float)*timer/1000000);
+		printf("started\n");
+		usleep(10000);
+		ww=1;
+		pthread_t w;
+		pthread_create(&w, NULL, wl, NULL);
+		#endif
+		if ( dgtpicom_off(1) < 0 )
+			dgtpicom_off(1);
 		but=tim=0;
 		while(1) {
 
@@ -333,22 +374,20 @@ int dgtpicom_configure() {
 		if (e==ERROR_NACK || e==ERROR_NOACK) {
 			// no postive ack, not in cc
 			// set central controll
-			while (1) {
-				// try 3 times
-				setCCCount++;
-				// setCC>3?
-				if (setCCCount>3) {
-					#ifdef debug
-					ERROR_PIN_HI;
-					printf("%.3f ",(float)*timer/1000000);
-					printf("sending setCentralControll failed three times\n\n");
-					ERROR_PIN_LO;
-					#endif
-					return e;
-				}
-				usleep(10000);
-				if (dgt3000SetCC()==0) break;
+			// try 3 times
+			setCCCount++;
+			// setCC>3?
+			if (setCCCount>3) {
+				#ifdef debug
+				ERROR_PIN_HI;
+				printf("%.3f ",(float)*timer/1000000);
+				printf("sending setCentralControll failed three times\n\n");
+				ERROR_PIN_LO;
+				#endif
+				return e;
 			}
+			usleep(10000);
+			dgt3000SetCC();
 		} else if (e==ERROR_TIMEOUT) {
 			// timeout, line stay low -> reset i2c
 			resetCount++;
@@ -453,7 +492,7 @@ int dgtpicom_set_text(char text[], char beep, char ld, char rd) {
 	}
 
 	for (;i<11;i++) {
-		display[i+4]=' ';
+		display[i+4]=32;
 	}
 
 	display[16]=beep;
@@ -949,6 +988,8 @@ void *dgt3000Receive(void *a) {
 	#ifdef debug
 	RECEIVE_THREAD_RUNNING_PIN_HI;
 	#endif
+	
+	dgtRx.buttonRepeatTime = 0;
 
 	while (dgtRx.on) {
 		if ( (*i2cSlaveFR&0x20) != 0 || (*i2cSlaveFR&2) == 0 ) {
@@ -1005,10 +1046,24 @@ void *dgt3000Receive(void *a) {
 						break;
 					case 5:		// button
 						// new button pressed
-						if (rm[4]&0x1f)
+						if (rm[4]&0x1f) {
 							dgtRx.buttonState |= rm[4]&0x1f;
 							dgtRx.lastButtonState = rm[4];
-
+							dgtRx.buttonRepeatTime = *timer + 500000;
+							dgtRx.buttonCount = 0;
+							
+							// buffer full?
+							if ((dgtRx.buttonEnd+1)%DGTRX_BUTTON_BUFFER_SIZE == dgtRx.buttonStart) {
+								#ifdef debug
+								printf("%.3f ",(float)*timer/1000000);
+								printf("Button buffer full, buttons ignored\n");
+								#endif
+							} else {
+								dgtRx.buttonPres[dgtRx.buttonEnd] = dgtRx.buttonState;
+								dgtRx.buttonTime[dgtRx.buttonEnd] = dgtRx.buttonCount;
+								dgtRx.buttonEnd = (dgtRx.buttonEnd+1)%DGTRX_BUTTON_BUFFER_SIZE;
+							}
+						}
 						// turned off/on
 						if((rm[4]&0x20) != (rm[5]&0x20)) {
 							// buffer full?
@@ -1018,9 +1073,9 @@ void *dgt3000Receive(void *a) {
 								printf("Button buffer full, on/off ignored\n");
 								#endif
 							} else {
-								dgtRx.buttonPres[dgtRx.buttonEnd]=0x20 | ((rm[5]&0x20)<<2);
-								dgtRx.buttonTime[dgtRx.buttonEnd]=0;
-								dgtRx.buttonEnd=(dgtRx.buttonEnd+1)%DGTRX_BUTTON_BUFFER_SIZE;
+								dgtRx.buttonPres[dgtRx.buttonEnd] = 0x20 | ((rm[5]&0x20)<<2);
+								dgtRx.buttonTime[dgtRx.buttonEnd] = 0;
+								dgtRx.buttonEnd = (dgtRx.buttonEnd+1)%DGTRX_BUTTON_BUFFER_SIZE;
 							}
 						}
 
@@ -1033,26 +1088,16 @@ void *dgt3000Receive(void *a) {
 								printf("Button buffer full, lever change ignored\n");
 								#endif
 							} else {
-								dgtRx.buttonPres[dgtRx.buttonEnd]=0x40 | ((rm[4]&0x40)<<1);
-								dgtRx.buttonTime[dgtRx.buttonEnd]=0;
-								dgtRx.buttonEnd=(dgtRx.buttonEnd+1)%DGTRX_BUTTON_BUFFER_SIZE;
+								dgtRx.buttonPres[dgtRx.buttonEnd] = 0x40 | ((rm[4]&0x40)<<1);
+								dgtRx.buttonTime[dgtRx.buttonEnd] = 0;
+								dgtRx.buttonEnd = (dgtRx.buttonEnd+1)%DGTRX_BUTTON_BUFFER_SIZE;
 							}
 						}
 
 						// buttons released
 						if((rm[4]&0x1f) == 0 && dgtRx.buttonState != 0) {
-							// buffer full?
-							if ((dgtRx.buttonEnd+1)%DGTRX_BUTTON_BUFFER_SIZE == dgtRx.buttonStart) {
-								#ifdef debug
-								printf("%.3f ",(float)*timer/1000000);
-								printf("Button buffer full, buttons ignored\n");
-								#endif
-							} else {
-								dgtRx.buttonPres[dgtRx.buttonEnd]=dgtRx.buttonState;
-								dgtRx.buttonTime[dgtRx.buttonEnd]=rm[8];
-								dgtRx.buttonEnd=(dgtRx.buttonEnd+1)%DGTRX_BUTTON_BUFFER_SIZE;
-							}
-							dgtRx.buttonState=0;
+							dgtRx.buttonRepeatTime = 0;
+							dgtRx.buttonState = 0;
 						}
 						#ifdef debug2
 						printf("= Button: 0x%02x>0x%02x\n",rm[5]&0x7f,rm[4]&0x7f);
@@ -1074,6 +1119,22 @@ void *dgt3000Receive(void *a) {
 			}
 			pthread_mutex_unlock(&receiveMutex);
 		} else {
+			if (dgtRx.buttonRepeatTime != 0 && dgtRx.buttonRepeatTime < *timer) {
+				dgtRx.buttonRepeatTime += 250000;
+				dgtRx.buttonCount++;
+				
+				// buffer full?
+				if ((dgtRx.buttonEnd+1)%DGTRX_BUTTON_BUFFER_SIZE == dgtRx.buttonStart) {
+					#ifdef debug
+					printf("%.3f ",(float)*timer/1000000);
+					printf("Button buffer full, repeated buttons ignored\n");
+					#endif
+				} else {
+					dgtRx.buttonPres[dgtRx.buttonEnd] = dgtRx.buttonState;
+					dgtRx.buttonTime[dgtRx.buttonEnd] = dgtRx.buttonCount;
+					dgtRx.buttonEnd = (dgtRx.buttonEnd+1)%DGTRX_BUTTON_BUFFER_SIZE;
+				}
+			}
 			#ifdef debug
 			RECEIVE_THREAD_RUNNING_PIN_LO;
 			#endif
@@ -1425,20 +1486,20 @@ static unsigned int dummyRead(volatile unsigned int *addr) {
 void i2cReset() {
 	*i2cSlaveCR = 0;
 	*i2cMaster = 0x10;
-	*i2cMaster = 0x8000;
+	*i2cMaster = 0x0000;
 
 	// pinmode GPIO2,GPIO3=input (togle via input to reset i2C master(sometimes hangs))
 	*gpio &= 0xfffff03f;
 	// pinmode GPIO18,GPIO19=input (togle via input to reset)
 	*(gpio+1) &= 0x00ffffff;
 	// send something in case master hangs
-	*i2cMasterFIFO = 0x69;
+	//*i2cMasterFIFO = 0x69;
 	*i2cMasterDLEN = 0;
-	*i2cMaster = 0x8080;
+//	*i2cMaster = 0x8080;
 	while((*i2cSlaveFR&2) == 0) {
 		dummyRead(i2cSlave);
 	}
-	usleep(1000);	// not tested! some delay maybe needed
+	usleep(2000);	// not tested! some delay maybe needed
 	*i2cSlaveCR = 0;
 	*i2cMasterS = 0x302;
 	*i2cMaster = 10;
@@ -1479,9 +1540,12 @@ void i2cReset() {
 	*i2cSlaveRSR = 0;
 
 	// set i2c master to 100khz
-	*i2cMasterDiv = 0xa47;		// 95khz works better
-//	*i2cMasterDiv = 0x9c4;		// 100khz
-//	*i2cMasterDiv = 0x271;		// 400khz
+//	if ( checkPiModel() == 3 )
+//		*i2cMasterDiv = 0x1072;
+//	else
+		*i2cMasterDiv = 0x0a47;	// 95khz works better
+//		*i2cMasterDiv = 0x09c4;	// 100khz
+//		*i2cMasterDiv = 0x0271;	// 400khz
 }
 
 // print hex values
@@ -1519,13 +1583,16 @@ int checkPiModel() {
 		#endif
 		;
 
-	// Start by looking for the Architecture, then we can look for a B2 revision....
+	// looking for the revision....
 	while (fgets (line, 120, cpuFd) != NULL)
-		if (strncmp (line, "Hardware", 8) == 0) {
+		if (strncmp (line, "Revision", 8) == 0) {
 			// See if it's BCM2708 or BCM2709
-			if (strstr (line, "BCM2709") != NULL) {
+			if ( strstr(line, "a01041") != NULL || strstr(line,"a21041") != NULL ) {
 				fclose(cpuFd);
 				return 2;	// PI 2
+			} else if ( strstr(line, "a02082") != NULL || strstr(line,"a22082") != NULL ) {
+				fclose(cpuFd);
+				return 3;	// PI 3
 			} else {
 				fclose(cpuFd);
 				return 1;	// PI B+
